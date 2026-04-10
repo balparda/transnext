@@ -17,7 +17,7 @@ Notes
 
 from __future__ import annotations
 
-from mycli import mycli
+from transnext import gen
 
 
 def Main() -> int:
@@ -27,7 +27,7 @@ def Main() -> int:
     int: Exit code
 
   """
-  mycli.app()
+  gen.app()
   return 0
 
 

@@ -2,8 +2,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # pyproject.toml (preferred for new projects, PEP 621)
 
-# TODO: FIRST pick PYTHON VERSION; there are AT LEAST 6 places in this file that depend on this
-
 ####################################################################################################
 [build-system]
 
@@ -13,15 +11,14 @@ build-backend = "poetry.core.masonry.api"
 ####################################################################################################
 [project]
 
-name = "mycli"     # TODO: app name, and also rename src/mycli directory to match
-version = "0.1.0"  # also update src/mycli/__init__.py  # TODO: app initial version
+name = "transnext"
+version = "1.0.0"  # also update src/transnext/__init__.py
 
-description = "Python CLI app"  # TODO: app description
-license = "Apache-2.0"  # TODO: correct license? if not, change: LICENSE and here and README.md
+description = "SDXL helper, searcher, maker, based on SDNext API"
+license = "Apache-2.0"
 authors = [
   { name = "Daniel Balparda", email = "balparda@github.com" },
   { name = "BellaKeri", email = "BellaKeri@github.com" },
-  # TODO: ... add authors ...
 ]
 
 keywords = [
@@ -36,21 +33,21 @@ keywords = [
 ]
 classifiers = [  # see: https://pypi.org/classifiers/
   "Programming Language :: Python :: 3",
-  "Programming Language :: Python :: 3.12",  # TODO: python VERSION; pick correct ones
   "Programming Language :: Python :: 3.13",
   "Programming Language :: Python :: 3.14",
   "Operating System :: OS Independent",
-  "Topic :: Utilities"
-  # TODO: ... add others ...
+  "Topic :: Utilities",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+  "Topic :: Artistic Software",
 ]
 
-requires-python = ">=3.12"  # TODO: python VERSION; pick correct one
+requires-python = ">=3.13"
 readme = "README.md"
 license-files = [ "LICENSE" ]
 
 dependencies = [
 
-  "transcrypto>=2.6.0",
+  "transai>=1.2.0",
 
   # best place for project dependencies, if possible
   # development-only dependencies go in the [tool.poetry.group.dev.dependencies] section below
@@ -63,7 +60,7 @@ dependencies = [
 # console scripts that will be installed when installing the package;
 # if you change/add a line here also edit [tool.poetry.scripts] below and re-run `poetry sync`
 
-mycli = "mycli.mycli:Run"  # TODO: rename `mycli` part
+gen = "transnext.gen:Run"
 
 ####################################################################################################
 [tool.poetry.scripts]
@@ -71,27 +68,27 @@ mycli = "mycli.mycli:Run"  # TODO: rename `mycli` part
 # poetry/poetry-core still relies on this section for wheel entry points in some versions;
 # keep this in sync with [project.scripts] above
 
-mycli = "mycli.mycli:Run"  # TODO: rename `mycli` part
+gen = "transnext.gen:Run"
 
 ####################################################################################################
 [project.urls]
 
-Homepage = "https://github.com/balparda/mycli"
-Repository = "https://github.com/balparda/mycli"
-Issues = "https://github.com/balparda/mycli/issues"
-Changelog = "https://github.com/balparda/mycli/blob/main/CHANGELOG.md"
+Homepage = "https://github.com/balparda/transnext"
+Repository = "https://github.com/balparda/transnext"
+Issues = "https://github.com/balparda/transnext/issues"
+Changelog = "https://github.com/balparda/transnext/blob/main/CHANGELOG.md"
 
-# PyPI = "https://pypi.org/project/transcrypto/"
+PyPI = "https://pypi.org/project/transnext/"
 
 ####################################################################################################
 [tool.poetry]
 
 requires-poetry = "^2.1"
 
-packages = [{ include = "mycli", from = "src" }]  # TODO: rename `mycli` part
+packages = [{ include = "transnext", from = "src" }]
 include = [
-  { path = "src/mycli/py.typed", format = "sdist" },  # TODO: rename `mycli` part
-  { path = "src/mycli/py.typed", format = "wheel" },  # TODO: rename `mycli` part
+  { path = "src/transnext/py.typed", format = "sdist" },
+  { path = "src/transnext/py.typed", format = "wheel" },
 ]
 
 ####################################################################################################
@@ -99,7 +96,7 @@ include = [
 
 # prefer to add dependencies inside the [project.dependencies] section
 
-python = "^3.12"  # if version changes, remember to change README.md  # TODO: python VERSION; pick correct one
+python = "^3.13"  # if version changes, remember to change README.md
 
 [tool.poetry.group.dev.dependencies]
 
@@ -124,7 +121,7 @@ poetry-plugin-export = "^1.10"
 ####################################################################################################
 [tool.ruff]
 
-target-version = "py312"  # TODO: python VERSION; pick correct one
+target-version = "py313"
 line-length = 100
 indent-width = 2
 
@@ -195,12 +192,13 @@ ignore = [
 
   "TRY003",  # Avoid specifying long messages outside the exception class
   "TRY300",  # Consider moving this statement to an `else` block
+  "TRY400",  # Use `logging.exception` instead of `logging.error`
   "EM101",   # Exception must not use a string literal, assign to variable first
   "EM102",   # Exception must not use an f-string literal, assign to variable first
 
   "TD002",   # allow TODOs without authors
   "TD003",   # allow TODOs without bugs
-  "FIX002",  # fix the todos... if you want to still see them in VSCode: "Todo Tree" extension (Gruntfuggly)  # TODO: remove this line: you usually want this
+  "FIX002",  # fix the todos... if you want to still see them in VSCode: "Todo Tree" extension (Gruntfuggly)
   "PGH003",  # allow ignoring type issues without giving extra codes
 
   "LOG015",  # allows for calls into top-level logging methods
@@ -231,7 +229,7 @@ preview = true  # if you want new features being previewed
 ####################################################################################################
 [tool.mypy]
 
-python_version = "3.12"  # TODO: python VERSION; pick correct one
+python_version = "3.13"
 mypy_path = [ "src", "typings" ]
 
 warn_unused_ignores = false  # VSCode always has more to say, so this is important
@@ -252,7 +250,7 @@ strict = true
 [tool.pyright]
 
 typeCheckingMode = "strict"
-pythonVersion = "3.12"  # TODO: python VERSION; pick correct one
+pythonVersion = "3.13"
 venvPath = "."
 venv = ".venv"
 
@@ -298,7 +296,7 @@ markers = [
 
 ]
 
-typeguard-packages = [ "mycli", "scripts" ]  # TODO: rename `mycli` part
+typeguard-packages = [ "transnext", "scripts" ]
 typeguard-forward-ref-policy = "ERROR"
 typeguard-collection-check-strategy = "ALL_ITEMS"
 

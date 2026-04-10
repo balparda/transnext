@@ -1,40 +1,21 @@
 <!-- SPDX-FileCopyrightText: Copyright 2026 Daniel Balparda <balparda@github.com> -->
 <!-- SPDX-License-Identifier: Apache-2.0 -->
-# poetrycli - Python/Poetry/Typer/Rich CLI Template
+# transnext
 
-***TODO:*** *One-line description of what this CLI does and who it’s for. Change the title above.*
+SDXL helper, searcher, maker, based on SDNext API.
 
 - **Primary use case:** *<e.g., bulk process files, manage deployments, query APIs>*
 - **Works with:** *<e.g., local files, Git repos, Kubernetes, AWS, JSON logs>*
-- **Status:** *<stable | beta | experimental>*
-- **License:** *<MIT | Apache-2.0 | GPL-3.0 | Proprietary>*
+- **Status:** *stable*
+- **License:** *Apache-2.0*
 
 ***TODO:*** *throughout this documentation* ***ITALICS*** *mark* ***placeholder content*** *that a new project would typically want to edit with its own information.*
 
-***TODO:*** *If you are starting a new project, there are lots of instructions and useful information in the* "[Appendix **I**: Using the `poetrycli` template](#appendix-i-using-the-poetrycli-template)" *and* [Appendix **II**: Template Checklist](#appendix-ii-template-checklist-turning-poetrycli-into-your-new-cli-project-in-12-steps) *sections.*
-
-**`poetrycli`** is a **template** for building modern Python CLI applications using:
-
-- **Python 3.12** or **Python 3.13** or **Python 3.14**
-- **Poetry** for packaging, dependency management, and `venv` workflow
-- **Typer** for CLI structure (commands, options, subcommands, help)
-- **Transcrypto** for CLI modules, logging, humanization, crypto, random, hash, serialization, etc
-- **Rich** for consistent console output and pretty logging
-- **Ruff** for formatting + linting
-- **MyPy** (and **Pyright/Pylance/typeguard**) for strict type checking
-- **Pytest + coverage** for tests
-- **pre-commit** + **GitHub Actions CI** to keep everything enforced automatically
-- **dependabot** + **codeql** to keep dependencies always up-to-date and security issues at bay
-
-The `poetrycli` repo is intentionally opinionated because it was built to help the authors (2-space indentation, single quotes, strict typing, “select ALL rules” linting are examples) but includes escape hatches and ***TODO*** markers to customize quickly. Started in Jan/2026, by ***Daniel Balparda***.
-
-*Since version 0.1.0 it is PyPI package: <https://pypi.org/project/foobarnotreally/>*
-
-***TODO:*** *change this header to match your project's conditions.*
+*Since version 1.0.0 it is PyPI package: <https://pypi.org/project/transnext/>*
 
 ## Table of contents
 
-- [poetrycli - Python/Poetry/Typer/Rich CLI Template](#poetrycli---pythonpoetrytyperrich-cli-template)
+- [transnext](#transnext)
   - [Table of contents](#table-of-contents)
   - [License](#license)
     - [*Third-party notices (TODO)*](#third-party-notices-todo)
