@@ -415,6 +415,21 @@ class AIDatabase:
     self._db['images'][db_entry['hash']] = db_entry.copy()  # add to DB images
     return (db_entry, img_bytes)
 
+  def Sync(self, *, add_dir: pathlib.Path | str | None = None) -> None:
+    """Go over all known image dirs, check for new/deleted images, update DB accordingly.
+
+    Args:
+      add_dir: (default None) Optional additional dir to add to known image sources and sync with
+
+    Raises:
+      Error: if the provided path is invalid or other errors
+
+    """
+    add_dir = pathlib.Path(add_dir).expanduser().resolve() if add_dir else None
+    if add_dir and (not add_dir.exists() or not add_dir.is_dir()):
+      raise Error(f'Provided directory for sync does not exist: {add_dir}')
+    # TODO: implement
+
 
 def _DBLabel(db: _DBType) -> str:
   """Get a human-readable label for the database, for logging and display purposes.

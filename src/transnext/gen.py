@@ -59,7 +59,7 @@ def Main(  # documentation is help/epilog/args # noqa: D103
   host: str = base.SD_HOST_OPTION,  # type: ignore[assignment]
   port: int = base.SD_PORT_OPTION,  # type: ignore[assignment]
   db: bool = base.SD_DB_USE_OPTION,  # type: ignore[assignment]
-  output: pathlib.Path | None = base.MODELS_ROOT_OPTION,  # type: ignore[assignment]
+  output: pathlib.Path | None = base.SD_IMAGES_OUTPUT_OPTION,  # type: ignore[assignment]
 ) -> None:
   if version:
     typer.echo(__version__)
@@ -99,4 +99,4 @@ def Markdown(*, ctx: click.Context) -> None:  # documentation is help/epilog/arg
 
 
 # Import CLI modules to register their commands with the app
-from transnext.cli import make  # pyright: ignore[reportUnusedImport] # noqa: E402, F401
+from transnext.cli import make, sync  # pyright: ignore[reportUnusedImport] # noqa: E402, F401

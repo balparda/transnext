@@ -16,8 +16,8 @@ from transnext.core import base, db, sdnapi
   help='Query the model.',
   epilog=(
     'Example:\n\n\n\n'
-    'poetry run gen make "What is the capital of France?"\n\n'
-    'poetry run gen make --no-lms "Give me an onion soup recipe."'
+    'poetry run gen -vv --out ~/foo/bar make "dark knight" -n batman '
+    '--cfg 7.5 -m SDXL_model_1234 -i 30 --sampler "Euler a"'
   ),
 )
 @clibase.CLIErrorGuard
@@ -38,14 +38,17 @@ def Make(  # documentation is help/epilog/args # noqa: D103
   cfg_end: float = base.SD_CFG_END_OPTION,  # type: ignore[assignment]
   backup: bool = base.SD_API_SERVER_SAVE,  # type: ignore[assignment]
 ) -> None:
+  # check sanity
   config: gen.GenConfig = ctx.obj
-  api = sdnapi.API(base.MakeURL(config.host, config.port), server_save_images=backup)
   if not config.db and not config.output:
     raise click.UsageError('With `--no-db` you must specify `--out`')
-  api.GetModels()
+  # open API and DB
+  api = sdnapi.API(base.MakeURL(config.host, config.port), server_save_images=backup)
   with db.AIDatabase(config.appconfig, read_only=not config.db) as ai_db:
+    # set output, if specified
     if config.output is not None:
       ai_db.output = config.output
+    # run the generation and store the result in the DB
     ai_db.Txt2Img(
       api,
       db.AIMetaTypeFactory(
@@ -65,6 +68,5 @@ def Make(  # documentation is help/epilog/args # noqa: D103
         }
       ),
     )
-
   # DB is closed and saved
   config.console.print()

@@ -99,7 +99,7 @@ SD_DB_USE_OPTION: typer.models.OptionInfo = typer.Option(
     'default: True (DB will be used/updated)'
   ),
 )
-MODELS_ROOT_OPTION: typer.models.OptionInfo = typer.Option(
+SD_IMAGES_OUTPUT_OPTION: typer.models.OptionInfo = typer.Option(
   None,
   '-o',
   '--out',
