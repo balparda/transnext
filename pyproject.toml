@@ -48,9 +48,7 @@ license-files = [ "LICENSE" ]
 dependencies = [
 
   "transai>=1.2.0",
-
-  # best place for project dependencies, if possible
-  # development-only dependencies go in the [tool.poetry.group.dev.dependencies] section below
+  "requests>=2.33",  # sync with types-requests import
 
 ]
 
@@ -113,7 +111,7 @@ typeguard = "^4.5"
 
 # project-specific dev-only
 
-# TODO: add dev-only deps here
+types-requests = "^2.33"  # sync with requests import
 
 [tool.poetry.requires-plugins]
 poetry-plugin-export = "^1.10"

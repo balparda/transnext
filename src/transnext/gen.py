@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import pathlib
 from dataclasses import dataclass
 
 import click
@@ -13,15 +14,14 @@ from transcrypto.cli import clibase
 from transcrypto.utils import config as app_config
 from transcrypto.utils import logging as cli_logging
 
+from transnext.core import base
+
 from . import __version__
 
 
 @dataclass(kw_only=True, slots=True, frozen=True)
-class MyCLIConfig(clibase.CLIConfig):
-  """MyCLI global context, storing the configuration."""
-
-  foo: int
-  bar: str
+class GenConfig(base.TransNextConfig):
+  """Gen CLI global context, storing the configuration."""
 
 
 # CLI app setup, this is an important object and can be imported elsewhere and called
@@ -56,8 +56,10 @@ def Main(  # documentation is help/epilog/args # noqa: D103
       'Defaults to having colors.'  # state default because None default means docs don't show it
     ),
   ),
-  foo: int = typer.Option(1000, '-f', '--foo', help='Some integer option.'),
-  bar: str = typer.Option('str default', '-b', '--bar', help='Some string option.'),
+  host: str = base.SD_HOST_OPTION,  # type: ignore[assignment]
+  port: int = base.SD_PORT_OPTION,  # type: ignore[assignment]
+  db: bool = base.SD_DB_USE_OPTION,  # type: ignore[assignment]
+  output: pathlib.Path | None = base.MODELS_ROOT_OPTION,  # type: ignore[assignment]
 ) -> None:
   if version:
     typer.echo(__version__)
@@ -70,13 +72,15 @@ def Main(  # documentation is help/epilog/args # noqa: D103
     soft_wrap=False,  # decide if you want soft wrapping of long lines
   )
   # create context with the arguments we received
-  ctx.obj = MyCLIConfig(
+  ctx.obj = GenConfig(
     console=console,
     verbose=verbose,
     color=color,
-    appconfig=app_config.InitConfig('transnext', 'gen.bin'),
-    foo=foo,
-    bar=bar,
+    appconfig=app_config.InitConfig('transnext', 'config.bin'),
+    host=host,
+    port=port,
+    db=db,
+    output=output,
   )
   # even though this is a convenient place to print(), beware that this runs even when
   # a subcommand is invoked; so prefer logging.debug/info/warning/error instead of print();
@@ -90,9 +94,9 @@ def Main(  # documentation is help/epilog/args # noqa: D103
 )
 @clibase.CLIErrorGuard
 def Markdown(*, ctx: click.Context) -> None:  # documentation is help/epilog/args # noqa: D103
-  config: MyCLIConfig = ctx.obj
+  config: GenConfig = ctx.obj
   config.console.print(clibase.GenerateTyperHelpMarkdown(app, prog_name='gen'))
 
 
 # Import CLI modules to register their commands with the app
-from transnext.cli import randomcommand  # pyright: ignore[reportUnusedImport] # noqa: E402, F401
+from transnext.cli import make  # pyright: ignore[reportUnusedImport] # noqa: E402, F401

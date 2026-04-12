@@ -1,6 +1,6 @@
 <!-- SPDX-FileCopyrightText: Copyright 2026 Daniel Balparda <balparda@github.com> -->
 <!-- SPDX-License-Identifier: Apache-2.0 -->
-# transnext
+# TransNext
 
 SDXL helper, searcher, maker, based on SDNext API.
 
@@ -15,7 +15,7 @@ SDXL helper, searcher, maker, based on SDNext API.
 
 ## Table of contents
 
-- [transnext](#transnext)
+- [TransNext](#transnext)
   - [Table of contents](#table-of-contents)
   - [License](#license)
     - [*Third-party notices (TODO)*](#third-party-notices-todo)
