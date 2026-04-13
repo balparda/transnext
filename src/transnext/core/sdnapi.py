@@ -81,7 +81,8 @@ class API(db.APIProtocol):
     self._server_save_images: bool = server_save_images
     server: tuple[str, str] = self.ServerVersion()
     logging.info(
-      f'API(v#{self._version})/{server[0]}/{server[1]} @ {self._api_url}{" + SAVE" if self._server_save_images else ""}'
+      f'API(v#{self._version})/{server[0]}/{server[1]} '
+      f'@ {self._api_url}{" + SAVE" if self._server_save_images else ""}'
     )
 
   def Call(self, endpoint: Endpoints, payload: tbase.JSONDict | None = None) -> tbase.JSONValue:
