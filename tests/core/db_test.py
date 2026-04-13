@@ -643,3 +643,107 @@ def testSyncMultipleImagesInDir(tmp_path: pathlib.Path) -> None:
   ai_db.Sync(add_dir=src_dir)
   assert h1 in ai_db._db['images']
   assert h2 in ai_db._db['images']
+
+
+@pytest.mark.slow
+def testSyncRealImages(tmp_path: pathlib.Path) -> None:  # noqa: PLR0915
+  """Sync against the real test images directory imports both files with exact metadata."""
+  # pre-populate models so partial model hashes in image metadata resolve to exact entries
+  ai_db = db.AIDatabase(_MakeAppConfig(tmp_path))
+  ai_db._db['models']['e6bb9ea85b1065e7bce3cf03'] = _MakeModel(
+    h='e6bb9ea85b1065e7bce3cf03', name='SDXL_00_v10VAEFix'
+  )
+  ai_db._db['models']['dec85dd6545e07bbd7a0fde6'] = _MakeModel(
+    h='dec85dd6545e07bbd7a0fde6', name='SDXL_10_COL_colossusProjectXLSFW_v10bNeodemon'
+  )
+  # point Sync at the real test image directory (tests/data/images/)
+  images_dir: pathlib.Path = (pathlib.Path(__file__).parent.parent / 'data' / 'images').resolve()
+  ai_db.Sync(add_dir=images_dir)
+  assert len(ai_db._db['images']) == 2
+  # ── Image 1: 20231116... (crazy / no negative / UniPC / model e6bb9ea85b) ──
+  hash1 = '7b35463de957335e3841b6d9742c6bed706212ce87851f7c3ca93fe268544f4d'
+  assert hash1 in ai_db._db['images']
+  e1: db.DBImageType = ai_db._db['images'][hash1]
+  file1 = '20231116184540-Me6bb9ea85b-Pf4804c3f-C7.5-N30-1884649524-a3fffc692a94bfca.png'
+  assert e1['hash'] == hash1
+  assert e1['raw_hash'] == '7847345e5b4687962637c792e890226b08113e9579f7f1d253d1d6efe7f37363'
+  assert e1['path'] == str(images_dir / file1)
+  assert e1['alt_path'] == []
+  assert e1['size'] == 1938975
+  assert e1['width'] == 1024
+  assert e1['height'] == 1024
+  assert e1['format'] == db.ImageFormat.PNG.value
+  assert e1['sd_info'] == {}
+  m1: db.AIMetaType = e1['ai_meta']
+  assert m1['model_hash'] == 'e6bb9ea85b1065e7bce3cf03'
+  assert m1['positive'] == 'crazy'
+  assert m1['negative'] is None
+  assert m1['seed'] == 1884649524
+  assert m1['width'] == 1024
+  assert m1['height'] == 1024
+  assert m1['steps'] == 30
+  assert m1['cfg_scale'] == 75  # 7.5 * 10
+  assert m1['cfg_end'] == base.SD_DEFAULT_CFG_END  # not in metadata, uses default (8)
+  assert m1['sampler'] == base.Sampler.Unity.value  # 'UniPC'
+  assert m1['parser'] == base.SD_DEFAULT_QUERY_PARSER.value  # not in metadata, default 'a1111'
+  assert m1['clip_skip'] == base.SD_DEFAULT_CLIP_SKIP
+  assert e1['sd_params'] == {
+    'positive': 'crazy',
+    'cfg scale': '7.5',
+    'height': '1024',
+    'model': 'SDXL_00_v10VAEFix',
+    'model hash': 'e6bb9ea85b',
+    'ngms': '2.5',
+    'rng': 'CPU',
+    'sampler': 'UniPC',
+    'seed': '1884649524',
+    'steps': '30',
+    'version': 'v1.6.0',
+    'width': '1024',
+  }
+  # ── Image 2: ea94... (spaceship / negative / DPM++ SDE / model dec85dd654) ──
+  hash2 = 'ec24329d4bd5b333e39ef923a61a66416d459af84c079ae4606e37a5b88a5985'
+  assert hash2 in ai_db._db['images']
+  e2: db.DBImageType = ai_db._db['images'][hash2]
+  file2 = 'ea94a595ace8-20260413105628-dec85dd6-80-30-800-800-1234321-ec24329d4bd5.png'
+  assert e2['hash'] == hash2
+  assert e2['raw_hash'] == '3da9f76cbcc7c4de5a39973e26d09696a1fe1b068d02f12290fe6632a759aec0'
+  assert e2['path'] == str(images_dir / file2)
+  assert e2['alt_path'] == []
+  assert e2['size'] == 519973
+  assert e2['width'] == 800
+  assert e2['height'] == 800
+  assert e2['format'] == db.ImageFormat.PNG.value
+  assert e2['sd_info'] == {}
+  m2: db.AIMetaType = e2['ai_meta']
+  assert m2['model_hash'] == 'dec85dd6545e07bbd7a0fde6'
+  assert m2['positive'] == '(spaceship), space, [photograph]'
+  assert m2['negative'] == 'planet, galaxy'
+  assert m2['seed'] == 1234321
+  assert m2['width'] == 800
+  assert m2['height'] == 800
+  assert m2['steps'] == 30
+  assert m2['cfg_scale'] == 80  # 8.0 * 10
+  assert m2['cfg_end'] == 8  # 0.8 * 10
+  assert m2['sampler'] == base.Sampler.DPM_P_SDE.value  # 'DPM++ SDE'
+  assert m2['parser'] == base.QueryParser.A1111.value  # 'a1111' (explicit in metadata)
+  assert m2['clip_skip'] == base.SD_DEFAULT_CLIP_SKIP
+  assert e2['sd_params'] == {
+    'positive': '(spaceship), space, [photograph]',
+    'negative': 'planet, galaxy',
+    'app': 'SD.Next',
+    'cfg end': '0.8',
+    'cfg scale': '8.0',
+    'height': '800',
+    'model': 'SDXL_10_COL_colossusProjectXLSFW_v10bNeodemon',
+    'model hash': 'dec85dd654',
+    'operations': 'txt2img',
+    'parser': 'a1111',
+    'pipeline': 'StableDiffusionXLPipeline',
+    'sampler': 'DPM++ SDE',
+    'scheduler': 'DPMSolverMultistepScheduler',
+    'seed': '1234321',
+    'steps': '30',
+    'version': '0eb4a98',
+    'width': '800',
+  }
