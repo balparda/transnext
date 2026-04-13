@@ -401,20 +401,23 @@ def testFindModelHashPrefixMatch() -> None:
 
 
 def testFindModelHashNoMatch() -> None:
-  """No match returns the partial hash as-is."""
+  """No match raises Error."""
   models: set[str] = {'abc123-full-hash'}
-  assert db._FindModelHash('deadbeef', models) == 'deadbeef'
+  with pytest.raises(db.Error, match='not found in DB'):
+    db._FindModelHash('deadbeef', models)
 
 
 def testFindModelHashAmbiguous() -> None:
-  """Ambiguous prefix returns the partial hash as-is."""
+  """Ambiguous prefix raises Error."""
   models: set[str] = {'abc123aaa', 'abc123bbb'}
-  assert db._FindModelHash('abc123', models) == 'abc123'
+  with pytest.raises(db.Error, match='Ambiguous'):
+    db._FindModelHash('abc123', models)
 
 
 def testFindModelHashEmpty() -> None:
-  """Empty hash returns empty string."""
-  assert not db._FindModelHash('', set())
+  """Empty hash raises Error."""
+  with pytest.raises(db.Error, match='cannot be empty'):
+    db._FindModelHash('', set())
 
 
 # ─── _ImportImageFile ────────────────────────────────────────────────────────
@@ -467,13 +470,11 @@ def testImportImageFilePNGWithMetadata(tmp_path: pathlib.Path) -> None:
 
 
 def testImportImageFilePNGNoMetadata(tmp_path: pathlib.Path) -> None:
-  """_ImportImageFile handles PNG with no embedded metadata (uses defaults)."""
+  """_ImportImageFile raises ValueError when PNG has no embedded metadata."""
   img_path, img_bytes = _MakeTestPNG(tmp_path)
   img_hash: str = hashes.Hash256(img_bytes).hex()
-  entry: db.DBImageType = db._ImportImageFile(img_path, img_bytes, img_hash, set())
-  assert entry['hash'] == img_hash
-  assert not entry['ai_meta']['positive']
-  assert entry['ai_meta']['negative'] is None
+  with pytest.raises(ValueError, match=r'invalid literal.*no seed'):
+    db._ImportImageFile(img_path, img_bytes, img_hash, set())
 
 
 def testImportImageFileUnsupportedFormatRaises(tmp_path: pathlib.Path) -> None:
@@ -539,6 +540,8 @@ def testSyncNewImageImported(tmp_path: pathlib.Path) -> None:
   img_path, img_bytes = _MakeTestPNG(src_dir, params=params)
   img_hash: str = hashes.Hash256(img_bytes).hex()
   ai_db = db.AIDatabase(_MakeAppConfig(tmp_path))
+  # model must be pre-populated so _FindModelHash can resolve the partial 'deadbeef00' hash
+  ai_db._db['models']['deadbeef00'] = _MakeModel(h='deadbeef00', name='my-sdxl-model')
   ai_db.Sync(add_dir=src_dir)
   assert img_hash in ai_db._db['images']
   entry: db.DBImageType = ai_db._db['images'][img_hash]
@@ -635,11 +638,22 @@ def testSyncMultipleImagesInDir(tmp_path: pathlib.Path) -> None:
   src_dir.mkdir()
   sub_dir: pathlib.Path = src_dir / 'sub'
   sub_dir.mkdir()
-  _, b1 = _MakeTestPNG(src_dir, 'a.png')
-  _, b2 = _MakeTestPNG(sub_dir, 'b.png')
+  # use distinct seeds so images produce different bytes (different hashes)
+  params_1 = (
+    'img one\nSteps: 20, Size: 64x64, Sampler: Euler, Seed: 100, CFG scale: 7.0, '
+    'Model hash: abc1230, Model: mymodel'
+  )
+  params_2 = (
+    'img two\nSteps: 20, Size: 64x64, Sampler: Euler, Seed: 200, CFG scale: 7.0, '
+    'Model hash: abc1230, Model: mymodel'
+  )
+  _, b1 = _MakeTestPNG(src_dir, 'a.png', params=params_1)
+  _, b2 = _MakeTestPNG(sub_dir, 'b.png', params=params_2)
   h1: str = hashes.Hash256(b1).hex()
   h2: str = hashes.Hash256(b2).hex()
   ai_db = db.AIDatabase(_MakeAppConfig(tmp_path))
+  # pre-populate the model so _FindModelHash resolves 'abc1230'
+  ai_db._db['models']['abc1230'] = _MakeModel(h='abc1230', name='mymodel')
   ai_db.Sync(add_dir=src_dir)
   assert h1 in ai_db._db['images']
   assert h2 in ai_db._db['images']

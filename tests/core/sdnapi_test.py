@@ -123,7 +123,9 @@ def testCallModels() -> None:
   with mock.patch.object(sdnapi, '_Call', return_value=[{'model': 'data'}]) as mock_call:
     result: tbase.JSONValue = api.Call(sdnapi.Endpoints.MODELS)
   assert isinstance(result, list)
-  mock_call.assert_called_once()
+  mock_call.assert_called_once_with(
+    requests.get, 'http://localhost:7860', '/sdapi/v1/sd-models', None
+  )
   # check the endpoint path is correct
   args = mock_call.call_args
   assert args[0][2] == '/sdapi/v1/sd-models'

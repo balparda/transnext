@@ -58,19 +58,19 @@ def testMakeSuccess(
   mock_db_class.return_value = mock_db_inst
   mock_api_inst = mock.MagicMock()
   mock_api_class.return_value = mock_api_inst
-  result = _CallCLI(
+  result: click_testing.Result = _CallCLI(
     [
       '-vvv',
-      '--no-db',
       '--out',
       str(tmp_path),
       'make',
       'a cute cat',
     ]
   )
-  assert result.exit_code == 0
-  mock_api_inst.GetModels.assert_called_once()
-  mock_db_inst.Txt2Img.assert_called_once()
+  assert not result.exit_code
+  # GetModelHash is mocked to return a model hash, assert it was invoked
+  mock_db_inst.GetModelHash.assert_called_once_with('XLB_v10', api=mock_api_inst)
+  mock_db_inst.Txt2Img.assert_called_once_with(mock_meta, mock_api_inst)
 
 
 def testMakeNoDbNoOutRaises() -> None:
