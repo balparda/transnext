@@ -2,262 +2,222 @@
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 # TransNext
 
-SDXL helper, searcher, maker, based on SDNext API.
+SDXL helper, searcher, maker, based on [SDNext](https://github.com/vladmandic/sdnext) API.
 
-- **Primary use case:** *<e.g., bulk process files, manage deployments, query APIs>*
-- **Works with:** *<e.g., local files, Git repos, Kubernetes, AWS, JSON logs>*
-- **Status:** *stable*
-- **License:** *Apache-2.0*
+- **Primary use case:** Generate SDXL/Stable Diffusion images via the SDNext API, track them in an encrypted local database, and sync image collections from multiple directories
+- **Works with:** Local SDNext server, local filesystem image directories, encrypted JSON database
+- **Status:** Stable
+- **License:** Apache-2.0
 
-***TODO:*** *throughout this documentation* ***ITALICS*** *mark* ***placeholder content*** *that a new project would typically want to edit with its own information.*
-
-*Since version 1.0.0 it is PyPI package: <https://pypi.org/project/transnext/>*
+Since version 1.0.0 it is a PyPI package: <https://pypi.org/project/transnext/>
 
 ## Table of contents
 
-- [TransNext](#transnext)
-  - [Table of contents](#table-of-contents)
-  - [License](#license)
-    - [*Third-party notices (TODO)*](#third-party-notices-todo)
-    - [*Contributions and inbound licensing (TODO)*](#contributions-and-inbound-licensing-todo)
-  - [*Installation (TODO)*](#installation-todo)
-    - [*Supported platforms (TODO)*](#supported-platforms-todo)
-    - [Known dependencies (Prerequisites)](#known-dependencies-prerequisites)
-  - [*Context / Problem Space (TODO)*](#context--problem-space-todo)
-    - [*What this tool is (TODO)*](#what-this-tool-is-todo)
-    - [*What this tool is not (TODO)*](#what-this-tool-is-not-todo)
-    - [*Key concepts and terminology* (TODO)](#key-concepts-and-terminology-todo)
-    - [*Inputs and outputs (TODO)*](#inputs-and-outputs-todo)
-      - [*Inputs (TODO)*](#inputs-todo)
-      - [*Outputs (TODO)*](#outputs-todo)
-  - [*Design assumptions / Disclaimers (TODO)*](#design-assumptions--disclaimers-todo)
-    - [*Guarantees and stability (TODO)*](#guarantees-and-stability-todo)
-    - [*Assumptions (TODO)*](#assumptions-todo)
-    - [*Known limitations (TODO)*](#known-limitations-todo)
-    - [*Deprecation policy (TODO)*](#deprecation-policy-todo)
-    - [*Privacy / telemetry (TODO)*](#privacy--telemetry-todo)
-  - [*CLI Interface (TODO)*](#cli-interface-todo)
-    - [*Quick start (TODO)*](#quick-start-todo)
-    - [*Common workflows (TODO)*](#common-workflows-todo)
-      - [*Workflow 1 (TODO)*](#workflow-1-todo)
-      - [*Workflow 2 (TODO)*](#workflow-2-todo)
-    - [*Command structure (TODO)*](#command-structure-todo)
-    - [Global flags](#global-flags)
-    - [CLI Commands Documentation](#cli-commands-documentation)
-    - [*Configuration (TODO)*](#configuration-todo)
-      - [Config file locations](#config-file-locations)
-      - [*Configuration schema (TODO)*](#configuration-schema-todo)
-      - [*Validate configuration (TODO)*](#validate-configuration-todo)
-      - [*Environment variables (TODO)*](#environment-variables-todo)
-    - [*Input / output behavior (TODO)*](#input--output-behavior-todo)
-      - [*`stdin` and piping (TODO)*](#stdin-and-piping-todo)
-      - [*Output formats (TODO)*](#output-formats-todo)
-      - [Color and formatting](#color-and-formatting)
-      - [*Exit codes (TODO)*](#exit-codes-todo)
-    - [*Logging and observability (TODO)*](#logging-and-observability-todo)
-    - [*Safety features (TODO)*](#safety-features-todo)
-  - [*Project Design (TODO)*](#project-design-todo)
-    - [*Architecture overview (TODO)*](#architecture-overview-todo)
-    - [*Modules / packages (TODO)*](#modules--packages-todo)
-    - [*Data flow (TODO)*](#data-flow-todo)
-    - [*Error handling philosophy (TODO)*](#error-handling-philosophy-todo)
-    - [*Security model (TODO)*](#security-model-todo)
-    - [*Performance characteristics (TODO)*](#performance-characteristics-todo)
-  - [Development Instructions](#development-instructions)
-    - [File structure](#file-structure)
-    - [Development Setup](#development-setup)
-      - [*Requirements (TODO)*](#requirements-todo)
-      - [Install Python](#install-python)
-      - [Install Poetry (recommended: `pipx`)](#install-poetry-recommended-pipx)
-      - [Make sure `.venv` is local](#make-sure-venv-is-local)
-      - [Get the repository](#get-the-repository)
-      - [Create environment and install dependencies](#create-environment-and-install-dependencies)
-      - [Optional: VSCode setup](#optional-vscode-setup)
-    - [*Build (TODO)*](#build-todo)
-    - [*Run locally (TODO)*](#run-locally-todo)
-    - [Testing](#testing)
-      - [Unit tests / Coverage](#unit-tests--coverage)
-      - [Instrumenting your code](#instrumenting-your-code)
-      - [Integration / e2e tests](#integration--e2e-tests)
-      - [*Golden tests for CLI output (TODO)*](#golden-tests-for-cli-output-todo)
-    - [Linting / formatting / static analysis](#linting--formatting--static-analysis)
-      - [Type checking](#type-checking)
-    - [*Documentation updates (TODO)*](#documentation-updates-todo)
-    - [Versioning and releases](#versioning-and-releases)
-      - [Versioning scheme](#versioning-scheme)
-      - [Updating versions](#updating-versions)
-        - [Bump project version (patch/minor/major)](#bump-project-version-patchminormajor)
-        - [Update dependency versions](#update-dependency-versions)
-        - [Exporting the `requirements.txt` file](#exporting-the-requirementstxt-file)
-        - [CI and docs](#ci-and-docs)
-        - [Git tag and commit](#git-tag-and-commit)
-        - [Publish to PyPI](#publish-to-pypi)
-    - [*Contributing (TODO)*](#contributing-todo)
-  - [Security](#security)
-    - [*Supply chain (TODO)*](#supply-chain-todo)
-  - [*Reliability (TODO)*](#reliability-todo)
-    - [*Operational guidance (TODO)*](#operational-guidance-todo)
-    - [*Running in automation (TODO)*](#running-in-automation-todo)
-    - [*Failure modes (TODO)*](#failure-modes-todo)
-  - [*Troubleshooting (TODO)*](#troubleshooting-todo)
-    - [*Enable debug output (TODO)*](#enable-debug-output-todo)
-    - [*Common issues (TODO)*](#common-issues-todo)
-    - [*Collect diagnostics (TODO)*](#collect-diagnostics-todo)
-  - [*FAQ (TODO)*](#faq-todo)
-    - [*FAQ Section I (TODO)*](#faq-section-i-todo)
-      - [*Why does `<project>` need `<permission/dependency>`? (TODO)*](#why-does-project-need-permissiondependency-todo)
-      - [*How do I migrate from version X to Y? (TODO)*](#how-do-i-migrate-from-version-x-to-y-todo)
-      - [*How stable is the JSON output? (TODO)*](#how-stable-is-the-json-output-todo)
-  - [*Glossary (TODO)*](#glossary-todo)
+<!-- TOC is auto-generated, do not edit -->
 
 ## License
 
-Copyright 2026 Daniel Balparda <balparda@github.com>
+Copyright 2026 Daniel Balparda & BellaKeri <balparda@github.com>
 
 Licensed under the ***Apache License, Version 2.0*** (the "License"); you may not use this file except in compliance with the License. You may obtain a [copy of the License here](http://www.apache.org/licenses/LICENSE-2.0).
 
 Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the specific language governing permissions and limitations under the License.
 
-### *Third-party notices (TODO)*
+### Third-party notices
 
-*This project includes or depends on third-party software. See:*
+This project depends on the following key third-party software:
 
-- *NOTICE \<link\> (if applicable)*
-- *Dependency license list: \<link or section\>*
+- [SDNext](https://github.com/vladmandic/sdnext) — The Stable Diffusion server this tool communicates with (not bundled)
+- [transai](https://pypi.org/project/transai/) — AI utilities library
+- [transcrypto](https://github.com/balparda/transcrypto) — CLI modules, encryption, hashing, config management
+- [Pillow (PIL)](https://pypi.org/project/pillow/) — Image processing (via transai)
+- [Rich](https://pypi.org/project/rich/) — Terminal output formatting (via transai)
+- [Typer](https://pypi.org/project/typer/) — CLI framework (via transai)
+- [Requests](https://pypi.org/project/requests/) — HTTP client for API communication
 
-### *Contributions and inbound licensing (TODO)*
+## Installation
 
-- *Contributions are accepted under: \<same as project license | CLA | DCO\>*
-- *Policy: \<link to CONTRIBUTING.md\>*
-
-## *Installation (TODO)*
-
-*To use in your project just do:*
+To install from PyPI:
 
 ```sh
-pip3 install <your_pkg>
+pip3 install transnext
 ```
 
-*and then `from <your_pkg> import <your_library>` (or other parts of the library) for using it.*
+For development, see [Development Setup](#development-setup).
 
-### *Supported platforms (TODO)*
+### Supported platforms
 
-- *OS: \<Linux | macOS | Windows\>*
-- *Architectures: \<x86_64 | arm64\>*
-- *Minimum versions: \<e.g., macOS 12+, Ubuntu 20.04+, Windows 11\>*
+- **OS:** Linux, macOS (any platform that runs Python 3.13+ and can reach an SDNext server)
+- **Architectures:** x86_64, arm64
+- **Python:** >= 3.13
 
 ### Known dependencies (Prerequisites)
 
-- **[python 3.12](https://python.org/)** - [documentation](https://docs.python.org/3.12/)
-- **[rich 14.2+](https://pypi.org/project/rich/)** - Render rich text, tables, progress bars, syntax highlighting, markdown and more to the terminal - [documentation](https://rich.readthedocs.io/en/latest/)
-- **[typer 0.21+](https://pypi.org/project/typer/)** - CLI parser - [documentation](https://typer.tiangolo.com/)
-- **[transcrypto 2.1+](https://pypi.org/project/transcrypto/)** - CLI modules, logging, humanization, crypto, random, hash, serialization, config management, etc. - [documentation](https://github.com/balparda/transcrypto)
-- **[poetrycli](https://github.com/balparda/poetrycli)** - CLI app templates and utils
-- ***TODO:*** *add your main dependencies here too*
+- **[Python 3.13+](https://python.org/)** — [documentation](https://docs.python.org/3.13/)
+- **[transai 1.2+](https://pypi.org/project/transai/)** — AI utilities (brings in `typer`, `rich`, `transcrypto`, `Pillow`, etc.)
+- **[requests 2.33+](https://pypi.org/project/requests/)** — HTTP client for SDNext API communication
+- **[transcrypto 2.1+](https://pypi.org/project/transcrypto/)** — CLI modules, logging, humanization, crypto, random, hash, serialization, config management — [documentation](https://github.com/balparda/transcrypto)
+- A running **[SDNext](https://github.com/vladmandic/sdnext)** server with API enabled (default: `http://127.0.0.1:7860`)
 
-## *Context / Problem Space (TODO)*
+## Context
 
-### *What this tool is (TODO)*
+### What this tool is
 
-*\<Describe the CLI in one paragraph. Emphasize outcomes and workflows.\>*
+TransNext is a CLI tool for generating AI images using Stable Diffusion SDXL models via the [SDNext](https://github.com/vladmandic/sdnext) API. It provides rich control over generation parameters (prompts, sampler, CFG scale, seed, dimensions, CLIP skip, etc.), stores every generated image along with its full generation metadata in an optionally-encrypted local database, and can sync/import existing image collections from multiple directories — detecting duplicates, parsing embedded SDNext/A1111 PNG metadata, and keeping track of file locations.
 
-### *What this tool is not (TODO)*
+### What this tool is not
 
-- *Not intended for:*
-- *Not a replacement for:*
+- Not a Stable Diffusion server — it is a **client** for SDNext; you must run SDNext separately
+- Not a web UI — it is a command-line tool
+- Not a general image editor or converter
 
-### *Key concepts and terminology* (TODO)
+### Key concepts and terminology
 
-- *A*
-- *B*
+- **SDNext API** — The HTTP API exposed by the [SDNext](https://github.com/vladmandic/sdnext) Stable Diffusion server (based on Automatic1111's API)
+- **AIDatabase** — TransNext's local encrypted database that tracks all generated and imported images with their metadata
+- **Image hash** — SHA-256 of the image file on disk, used as the primary key in the database
+- **Raw hash** — SHA-256 of the decoded RGBA pixel data, format-agnostic for cross-format duplicate detection
+- **Model hash** — SHA-256 of the model weights file on disk, used to identify which model generated an image
+- **CFG scale** — Classifier-Free Guidance scale; controls how strongly the image follows the prompt (1.0-30.0)
+- **CFG end** — Fraction of total steps at which CFG guidance stops being applied (0.0-1.0)
+- **CLIP skip** — Number of CLIP layers to skip during prompt encoding (1-5)
+- **Sampler** — The diffusion sampling algorithm (Euler, Euler a, UniPC, DPM SDE, DPM++ SDE, DPM++ 2M SDE)
+- **Parser** — The prompt attention/weighting parser (native, compel, xhinker, a1111, fixed)
 
-### *Inputs and outputs (TODO)*
+### Inputs and outputs
 
-#### *Inputs (TODO)*
+#### Inputs
 
-- *stdin: \<supported | not supported\>*
-- *Files: \<paths, globs, formats\>*
-- *Network/API: \<endpoints, services\>*
-- *Environment variables/config:*
+- **stdin:** not supported
+- **Network/API:** SDNext server at configurable host:port (default `http://127.0.0.1:7860`)
+- **Files:** Image files (PNG, JPEG, GIF) from local directories for sync/import
+- **Environment variables:** `SDAPI_URL` overrides default host:port; `NO_COLOR` disables colored output
+- **Config:** Encrypted database file managed by `transcrypto.utils.config` at OS-native locations
 
-#### *Outputs (TODO)*
+#### Outputs
 
-- *stdout: \<human output / structured output\>*
-- *stderr: \<errors/logging\>*
-- *Files/artifacts:*
+- **stdout:** Human-readable Rich-formatted output (colored by default)
+- **stderr:** Logging at configurable verbosity levels
+- **Files:** Generated PNG images saved to date-based subdirectories (`YYYY-MM-DD/`) under the output root; encrypted database file
 
-## *Design assumptions / Disclaimers (TODO)*
+## Design assumptions and disclaimers
 
-### *Guarantees and stability (TODO)*
+### Assumptions
 
-- *CLI flags/commands stability: \<stable | may change\>*
-- *JSON output stability: \<stable schema | best-effort\>*
-- *Backward compatibility:*
+- A running SDNext server is accessible at the configured host:port
+- The user has filesystem read/write access to the output directory and image source directories
+- Encoding: UTF-8
+- Image dimensions must be multiples of 16
 
-### *Assumptions (TODO)*
+### Known limitations
 
-- *Environment: \<filesystem, permissions, network access\>*
-- *Locale/encoding: \<UTF-8 expected?\>*
-- *Time/timezone:*
+- Only supports text-to-image generation (`txt2img`); no img2img, inpainting, or other modes
+- Single image per generation call (batch size = 1)
+- API calls use `verify=False` for TLS (SDNext often runs on localhost without certificates)
+- SDNext API timeout is 300 seconds per call
 
-### *Known limitations (TODO)*
+### Privacy and telemetry
 
-- *Scale limits: \<e.g., tested up to 10k files\>*
-- *Platform limitations: \<e.g., Windows path edge cases\>*
-- *Edge cases: \<symlinks, long paths, etc.\>*
+- **Telemetry:** None. TransNext collects no data and makes no network calls except to the configured SDNext server.
+- All data is stored locally in an optionally-encrypted database file
 
-### *Deprecation policy (TODO)*
+## CLI Interface
 
-- *Deprecations are announced via:*
-- *Timeline: \<e.g., 2 minor versions\>*
-- *Migration guidance:*
+### Quick start
 
-### *Privacy / telemetry (TODO)*
-
-- *Telemetry: \<none | optional | on by default\>*
-- *What is collected:*
-- *How to disable: \<env var | config flag\>*
-
-## *CLI Interface (TODO)*
-
-### *Quick start (TODO)*
-
-*Minimal example.*
+Generate an image with default settings:
 
 ```sh
-<project> <command> <arg>
+poetry run gen --out ~/my-images make "a beautiful sunset over mountains"
 ```
 
-### *Common workflows (TODO)*
-
-#### *Workflow 1 (TODO)*
+Generate with more control:
 
 ```sh
-<project> <cmd> --flag value <input>
+poetry run gen -vv --out ~/my-images make "dark knight in the rain" \
+  -n "batman, comic" --cfg 7.5 -m SDXL_model -i 30 --sampler "Euler a" -w 1024 -h 1024
 ```
 
-#### *Workflow 2 (TODO)*
+Sync existing images into the database:
 
 ```sh
-<project> <cmd> <input> --output <file>
+poetry run gen sync ~/path/to/existing/images
 ```
 
-### *Command structure (TODO)*
+### Common workflows
 
-General shape:
+#### Generate an image
 
 ```sh
-<project> [global flags] <command> [command flags] [args]
+poetry run gen -vv --out ~/foo/bar make "dark knight" -n batman \
+  --cfg 7.5 -m SDXL_model_1234 -i 30 --sampler "Euler a"
+```
+
+This will:
+
+1. Connect to the SDNext API
+2. Look up the model by name (fetching from the server if not in the DB)
+3. Generate a 512x512 image with the given parameters
+4. Save the PNG to `~/foo/bar/YYYY-MM-DD/<hash>-<timestamp>-<model>-<cfg>-<steps>-<w>-<h>-<seed>-<img-hash>.png`
+5. Store the full metadata in the encrypted database
+
+#### Sync images from directories
+
+```sh
+poetry run gen sync                       # sync all known directories
+poetry run gen sync ~/foo/bar/new/dir     # add a new directory and sync everything
+```
+
+Sync scans all known image directories, detects new and deleted images, parses embedded SDNext/A1111 metadata from PNGs, tracks duplicates (same hash at multiple paths), and updates the database.
+
+#### Generate CLI documentation
+
+```sh
+poetry run gen markdown > gen.md
+```
+
+### Command structure
+
+```sh
+gen [global flags] <command> [command flags] [args]
 ```
 
 ### Global flags
 
 | Flag | Description | Default |
 | --- | --- | --- |
-| `-h`, `--help` | Show help | \<off\> |
-| `--version` | Show version and exit | \<off\> |
+| `--help` | Show help | off |
+| `--version` | Show version and exit | off |
 | `-v`, `-vv`, `-vvv`, `--verbose` | Verbosity (nothing=*ERROR*, `-v`=*WARNING*, `-vv`=*INFO*, `-vvv`=*DEBUG*) | *ERROR* |
-| `--color`/`--no-color` | Force enable/disable colored output (respects NO_COLOR env var if not provided) | `--color` |
+| `--color`/`--no-color` | Force enable/disable colored output (respects `NO_COLOR` env var) | `--color` |
+| `--host` | SDNext API host URL | `http://127.0.0.1` |
+| `-p`, `--port` | SDNext API port (0-65535) | `7860` |
+| `--db`/`--no-db` | Use/update internal database | `--db` |
+| `-o`, `--out` | Output root directory for generated images (creates `YYYY-MM-DD` sub-dirs) | last used (with `--db`) |
+
+### `make` command flags
+
+| Flag | Description | Default |
+| --- | --- | --- |
+| (argument) `POSITIVE_PROMPT` | Positive prompt string (required) | — |
+| `-n`, `--negative` | Negative prompt string | none |
+| `-i`, `--iterations` | Number of generation steps (1-200) | `20` |
+| `-s`, `--seed` | Random seed (2-2147483647); omit for random | random |
+| `-w`, `--width` | Image width in pixels (16-4096) | `512` |
+| `-h`, `--height` | Image height in pixels (16-4096) | `512` |
+| `--sampler` | Sampler method: Euler, Euler a, UniPC, DPM SDE, DPM++ SDE, DPM++ 2M SDE | `DPM++ SDE` |
+| `--parser` | Query parser: native, compel, xhinker, a1111, fixed | `a1111` |
+| `-m`, `--model` | Model name (substring match against known models) | `XLB_v10` |
+| `--clip` | CLIP skip value (1-5) | `1` |
+| `-g`, `--cfg` | CFG scale / guidance scale (1.0-30.0) | `6.0` |
+| `--cfg-end` | CFG guidance end fraction (0.0-1.0) | `0.8` |
+| `--backup`/`--no-backup` | Also save a backup on the SDNext server | `--no-backup` |
+
+### `sync` command
+
+| Argument | Description | Default |
+| --- | --- | --- |
+| `[ADD_DIR]` | Optional directory to add and sync | none (sync known dirs only) |
 
 ### CLI Commands Documentation
 
@@ -265,157 +225,116 @@ This software auto-generates docs for CLI apps:
 
 - [**`gen`** documentation](gen.md)
 
-### *Configuration (TODO)*
+### Configuration
 
 #### Config file locations
 
-This template uses `transcrypto.util.config` for configuration management. Config files are stored in OS-native locations:
+TransNext uses `transcrypto.utils.config` for configuration management. The database file (`config.bin`) is stored in OS-native locations:
 
-- On MacOS: `/Users/[user]/Library/Application Support/[app_name]{/[version]}`
-- On Windows: `C:\\Users\\[user]\\AppData\\Local{\\[app_author]}\\[app_name]{\\[version]}`
-- On Linux: `/home/[user]/.config/[app_name]{/[version]}`
-- On Android: `/data/data/com.myApp/shared_prefs/[app_name]{/[version]}`
+- **macOS:** `~/Library/Application Support/transnext/config.bin`
+- **Linux:** `~/.config/transnext/config.bin`
+- **Windows:** `C:\Users\<user>\AppData\Local\transnext\config.bin`
 
-***TODO: add specific config files info***
+The database is optionally encrypted with AES and stores:
 
-#### *Configuration schema (TODO)*
+- All known image metadata (hashes, paths, dimensions, generation parameters)
+- Available AI model inventory (hashes, names, paths, types)
+- Known image source directories for sync
+- Current output directory setting
 
-```yaml
-# ~/.config/<project>/config.yaml
-profile: default
-timeout_ms: 30000
-retries: 3
-output:
-  format: human # or json
-  color: auto   # auto|always|never
-```
+#### Environment variables
 
-#### *Validate configuration (TODO)*
+| Variable | Description | Default |
+| --- | --- | --- |
+| `SDAPI_URL` | Override SDNext API URL (e.g., `http://192.168.1.100:8000`); parsed into host + port | `http://127.0.0.1:7860` |
+| `NO_COLOR` | Disable colored output (any value) | unset |
 
-```sh
-<project> config validate
-<project> config show --effective
-```
+### Color and formatting
 
-#### *Environment variables (TODO)*
-
-| Variable | Description | Default | Notes |
-| --- | --- | --- | --- |
-| `<PROJECT>_CONFIG` | Config file path | \<auto\> | |
-| `<PROJECT>_LOG_LEVEL` | Log level | info | debug |
-| `<PROJECT>_NO_COLOR` | Disable color | \<unset\> | obeys `NO_COLOR` too |
-
-### *Input / output behavior (TODO)*
-
-#### *`stdin` and piping (TODO)*
-
-```sh
-cat input.txt | <project> <command> --from-stdin
-```
-
-#### *Output formats (TODO)*
-
-- *Human-readable (default)*
-- *JSON (`--json`) for automation and scripting*
-
-#### Color and formatting
-
-Rich can provide color output in logging and in CLI output. App:
+Rich provides colored terminal output. The app:
 
 - Respects `NO_COLOR` environment variable
-- Has `--no-color` / `--color` flag: if given will override the `NO_COLOR` environment variable
-- If there is no environment variable and no flag is given, default to having color
+- Has `--no-color` / `--color` flag: if given, overrides the `NO_COLOR` environment variable
+- If there is no environment variable and no flag is given, defaults to having color
 
-To control color see [Rich's markup conventions](https://rich.readthedocs.io/en/latest/markup.html). In summary, the basic 16 colors are:
-
-- `black`, `red`, `green`, `yellow`, `blue`, `magenta`, `cyan`, `white`
-- Bright variants: `bright_black` (gray), `bright_red`, `bright_green`, `bright_yellow`, `bright_blue`, `bright_magenta`, `bright_cyan`, `bright_white`
-
-Extended named colors (256-color palette) are as above, plus many more, including these useful ones:
-
-- `grey0` through `grey100` (grayscale)
-- `dark_red`, `light_red`, `dark_green`, `light_green`, `dark_blue`, `light_blue`, `dark_cyan`, `light_cyan`, `dark_magenta`, `light_magenta`
-- `orange1`, `orange3`, `orange4`, `purple`, `purple4`, `gold1`, `gold3`
-
-Styles you can combine with colors are: `bold`, `dim`, `italic`, `underline`, `blink`, `reverse`, `strike`, `overline`. Common usage patterns:
-
-- `[red]text[/]` - red text
-- `[bold red]text[/]` - bold red text
-- `[bold]text[/]` - just bold
-- `[#ff0000]text[/]` - hex color (RGB)
-- `[rgb(255,0,0)]text[/]` - RGB notation
-- `[on blue]text[/]` - blue **background**
-- `[red on white]text[/]` - red text on white **background**
-
-#### *Exit codes (TODO)*
+### Exit codes
 
 | Code | Meaning |
 | --- | --- |
 | 0 | Success |
-| 1 | Generic failure |
-| 2 | CLI usage error |
-| 3 | Runtime dependency failure (network/filesystem) |
-| 4 | Partial success (some items failed) |
+| 1 | Generic failure (API error, DB error, invalid input) |
+| 2 | CLI usage error (missing required arguments, invalid flag combinations) |
 
-*Keep this stable if users will script against it.*
+### Logging
 
-### *Logging and observability (TODO)*
+TransNext uses Python's standard `logging` module with Rich formatting:
 
-- *Log levels: error|warn|info|debug|trace*
-- *Structured logs: \<supported? --log-format=json\>*
-- *Debug bundle: \<project\> debug report (if available)*
+- Default: only *ERROR* messages
+- `-v`: *WARNING* messages
+- `-vv`: *INFO* messages (recommended for seeing generation progress)
+- `-vvv`: *DEBUG* messages (full API payloads, DB operations)
 
-### *Safety features (TODO)*
+## Project Design
 
-- *Dry run: `--dry-run` (no side effects)*
-- *Non-interactive: `--yes` / `--no-input`*
-- *Force: `--force` (document exactly what it bypasses)*
+### Architecture overview
 
-## *Project Design (TODO)*
+```txt
+CLI (Typer)  ->  gen.py (Main callback + config)
+                   |-- cli/make.py  ->  core/db.py (AIDatabase.Txt2Img)  ->  core/sdnapi.py (API.Txt2Img)
+                   +-- cli/sync.py  ->  core/db.py (AIDatabase.Sync)     ->  filesystem scan + metadata parse
+```
 
-### *Architecture overview (TODO)*
+The CLI layer (`gen.py` + `cli/`) handles argument parsing and wiring. The core layer (`core/`) contains all business logic: the database (`db.py`), API client (`sdnapi.py`), and shared constants/types (`base.py`).
 
-*\<High-level description of components and how they interact.\>*
-
-*Example:*
-
-- *CLI parser → configuration loader → core engine → output renderer*
-- *Optional: plugins/adapters for external systems*
-
-### *Modules / packages (TODO)*
+### Modules and packages
 
 | Component | Responsibility |
 | --- | --- |
-| cmd/ | CLI entrypoints and subcommands |
-| internal/core/ | Core business logic |
-| internal/io/ | Filesystem/network adapters |
-| internal/output/ | Output formatting (human/JSON) |
+| `gen.py` | Typer app definition, global callback, `GenConfig` dataclass, `markdown` command |
+| `cli/make.py` | `make` command — image generation via SDNext API |
+| `cli/sync.py` | `sync` command — directory scanning and DB import |
+| `core/base.py` | Constants, enums (`Sampler`, `QueryParser`), CLI option definitions, `TransNextConfig` base class |
+| `core/db.py` | `AIDatabase` class, TypedDict schemas (`DBImageType`, `AIMetaType`, `AIModelType`), image import/metadata parsing |
+| `core/sdnapi.py` | SDNext API HTTP client (`API` class), image generation, model management |
 
-### *Data flow (TODO)*
+### Data flow
 
-1. *Parse args + load config*
-1. *Validate inputs*
-1. *Execute core operation(s)*
-1. *Collect results and render output*
-1. *Return exit code*
+#### Image generation (`make`)
 
-### *Error handling philosophy (TODO)*
+1. Parse CLI args, create `GenConfig`
+2. Open `sdnapi.API` connection to SDNext server
+3. Open `AIDatabase` (load or create encrypted DB file)
+4. Look up model by name in DB; if not found, fetch all models from API and store them
+5. Check if an identical image already exists in DB (same `AIMetaType`); if so, return it
+6. Call SDNext `/sdapi/v1/txt2img` with generation parameters
+7. Validate response (dimensions, format), compute hashes
+8. Save PNG to disk under `<output>/<YYYY-MM-DD>/<filename>.png`
+9. Store `DBImageType` entry in DB, save DB
 
-- *Clear actionable messages for user errors*
-- *Structured errors for --json*
-- *Avoid leaking secrets in errors/logs*
+#### Image sync (`sync`)
 
-### *Security model (TODO)*
+1. Open `AIDatabase`
+2. Optionally add new directory to known sources
+3. Scan all known source directories recursively for image files (PNG, JPEG, GIF)
+4. For each image: compute SHA-256 hash
+   - If known: update path tracking (main path, alt paths for duplicates)
+   - If new: open with PIL, extract SDNext/A1111 metadata from PNG info tags, parse metadata, create `DBImageType`, add to DB
+5. Check for deleted paths (paths in DB that no longer exist on disk) and clean up
+6. Save DB
 
-- *Principle of least privilege*
-- *Secret handling: never log secrets; redact by default*
-- *TLS verification: on by default; disabling requires explicit opt-in*
+### Error handling
 
-### *Performance characteristics (TODO)*
+- All errors flow through a hierarchy: `base.Error` -> `db.Error` / `sdnapi.Error`
+- CLI commands are wrapped with `@clibase.CLIErrorGuard` for clean error reporting
+- `AIDatabase` is a context manager; on exception, the database is **not** saved to prevent corruption
+- Safe save mode (default): reads the on-disk DB before writing to detect concurrent modifications
 
-- *Intended scale:*
-- *Complexity notes:*
-- *Benchmarks:*
+### Security model
+
+- Database is optionally AES-encrypted via `transcrypto.core.aes`
+- No secrets are logged (API responses are logged at DEBUG level but contain no credentials)
+- SDNext API is called with `verify=False` because it typically runs on localhost without TLS certificates
+- No telemetry, no external network calls except to the configured SDNext server
 
 ## Development Instructions
 
@@ -426,15 +345,15 @@ Styles you can combine with colors are: `bold`, `dim`, `italic`, `underline`, `b
 ├── CHANGELOG.md                  ⟸ latest changes/releases
 ├── LICENSE
 ├── Makefile
-├── mycli.md                      ⟸ this is auto-generated CLI doc (by `make docs` or `make ci`)
-├── poetry.lock                   ⟸ this is maintained by Poetry, do not manually edit
+├── gen.md                        ⟸ auto-generated CLI doc (by `make docs` or `make ci`)
+├── poetry.lock                   ⟸ maintained by Poetry, do not manually edit
 ├── pyproject.toml                ⟸ most important configurations live here
 ├── README.md                     ⟸ this documentation
 ├── SECURITY.md                   ⟸ security policy
 ├── requirements.txt
 ├── .editorconfig
 ├── .gitignore
-├── .pre-commit-config.yaml       ⟸ pre-submit configs
+├── .pre-commit-config.yaml       ⟸ pre-commit configs
 ├── .github/
 │   ├── copilot-instructions.md   ⟸ GitHub Copilot project-specific instructions
 │   ├── dependabot.yaml           ⟸ Github dependency update pipeline
@@ -445,51 +364,39 @@ Styles you can combine with colors are: `bold`, `dim`, `italic`, `underline`, `b
 │   ├── extensions.json
 │   └── settings.json             ⟸ VSCode configs
 ├── scripts/
-│   └── template.py               ⟸ Use template & directory for executable standalone scripts
+│   └── template.py               ⟸ Template for executable standalone scripts
 ├── src/
-│   └── <your_pkg>/               ⟸ change this directory's name (originally mycli)
-│       ├── __init__.py
+│   └── transnext/
+│       ├── __init__.py           ⟸ Version (`__version__`)
 │       ├── __main__.py
-│       ├── mycli.py              ⟸ Main CLI app entry point (Main())
+│       ├── gen.py                ⟸ Main CLI app entry point (GenConfig, Main callback)
 │       ├── py.typed
 │       ├── cli/
 │       │   ├── __init__.py
-│       │   └── randomcommand.py  ⟸ CLI commands implementation, to keep `mycli.py` clean
+│       │   ├── make.py           ⟸ `gen make` command (image generation)
+│       │   └── sync.py           ⟸ `gen sync` command (directory sync)
 │       ├── core/
 │       │   ├── __init__.py
-│       │   └── example.py        ⟸ Business logic goes in this directory
+│       │   ├── base.py           ⟸ Constants, enums, CLI option definitions
+│       │   ├── db.py             ⟸ AIDatabase, TypedDict schemas, import/sync logic
+│       │   └── sdnapi.py         ⟸ SDNext API client
 │       └── utils/
 │           ├── __init__.py
-│           └── template.py       ⟸ Use template for starting regular modules
-├── tests/                        ⟸ Unit-Testing goes in this directory
-│   ├── mycli_test.py
-│   └── ...                       ⟸ Usually, a similar structure to `src/mycli/...`
+│           └── template.py       ⟸ Template for new modules
+├── tests/                        ⟸ Unit tests (mirrors src/ structure)
+│   ├── gen_test.py
+│   ├── cli/
+│   ├── core/
+│   └── utils/
 └── tests_integration/
-    └── test_installed_cli.py     ⟸ Integration testing goes in this directory
+    └── test_installed_cli.py     ⟸ Integration tests (wheel build + install + smoke)
 ```
-
-What each area is for:
-
-- `src/<your_pkg>/cli.py`: **Typer app** definition, top-level callback (**Main**), and all **commands/subcommands**.
-- `src/<your_pkg>/core/example.py`: **“Business logic”** layer. CLI commands call into here. This is the main testable logic layer.
-- `src/<your_pkg>/utils/template.py`: A template module showing a recommended docstring structure for **new modules**.
-- `tests/test_cli.py`: Comprehensive CLI **tests** using Typer’s CliRunner, pytest.mark.parametrize, and unittest.mock.patch.
-- `scripts/template.py`: A template for **“directly executable scripts”** (includes a shebang).
-
-Specifically note and use the templates.
-
-- **`src/<your_pkg>/utils/template.py`** is a suggested “module docstring skeleton” (purpose, API, inputs, errors, security, etc.). Copy it when creating new modules.
-- **`scripts/template.py`** is a suggested “executable script skeleton” (with shebang) that imports and calls into the package. Scripts should remain thin.
-
-Make sure you are familiar with the [`poetrycli` Features explained](#poetrycli-features-explained) for this project so you understand the philosophy behind developing for the structure here.
 
 ### Development Setup
 
-#### *Requirements (TODO)*
-
 #### Install Python
 
-Here is a suggested recipe to install an arbitrary Python version on **Linux**:
+On **Linux**:
 
 ```sh
 sudo apt-get update
@@ -498,24 +405,24 @@ sudo apt-get install git python3 python3-dev python3-venv build-essential softwa
 
 sudo add-apt-repository ppa:deadsnakes/ppa
 sudo apt-get update
-sudo apt-get install python3.12  # or python3.13 or python3.14 - TODO: pick a version
+sudo apt-get install python3.13
 ```
 
-and on **Mac**:
+On **macOS**:
 
 ```sh
 brew update
 brew upgrade
 brew cleanup -s
 
-brew install git python@3.12  # or python3.13 or python3.14 - TODO: pick a version
+brew install git python@3.13
 ```
 
 #### Install Poetry (recommended: `pipx`)
 
 [Poetry reference.](https://python-poetry.org/docs/cli/)
 
-Install `pipx` (if you don’t have it):
+Install `pipx` (if you don't have it):
 
 ```sh
 python3 -m pip install --user pipx
@@ -537,7 +444,7 @@ poetry config pypi-token.pypi <TOKEN>  # add your personal PyPI project token, i
 
 #### Make sure `.venv` is local
 
-This template expects a project-local virtual environment at `./.venv` (VSCode settings assume it, for example).
+This project expects a project-local virtual environment at `./.venv` (VSCode settings assume it).
 
 ```sh
 poetry config virtualenvs.in-project true
@@ -546,8 +453,8 @@ poetry config virtualenvs.in-project true
 #### Get the repository
 
 ```sh
-git clone https://github.com/balparda/poetrycli.git poetrycli  # TODO: change to your project's repo
-cd poetrycli
+git clone https://github.com/balparda/transnext.git transnext
+cd transnext
 ```
 
 #### Create environment and install dependencies
@@ -555,12 +462,12 @@ cd poetrycli
 From the repository root:
 
 ```sh
-poetry env use python3.12  # creates the .venv with the correct Python version - TODO: pick correct Python version
+poetry env use python3.13  # creates the .venv with the correct Python version
 poetry sync                # sync env to project's poetry.lock file
 poetry env info            # no-op: just to check that environment looks good
 poetry check               # no-op: make sure all pyproject.toml fields are being used correctly
 
-poetry run mycli --help    # simple test if everything loaded OK
+poetry run gen --help      # simple test if everything loaded OK
 make ci                    # should pass OK on clean repo
 ```
 
@@ -594,24 +501,27 @@ Recommended VSCode extensions:
 - Pylance (`ms-python.vscode-pylance`)
 - Mypy Type Checker (`ms-python.mypy-type-checker`)
 - Ruff (`charliermarsh.ruff`)
-- autoDocstring – Python Docstring Generator (`njpwerner.autodocstring`)
+- autoDocstring — Python Docstring Generator (`njpwerner.autodocstring`)
 - Code Spell Checker (`streetsidesoftware.code-spell-checker`)
 - markdownlint (`davidanson.vscode-markdownlint`)
 - Markdown All in One (`yzhang.markdown-all-in-one`) - helps maintain this `README.md` table of contents
 - Markdown Preview Enhanced (`shd101wyy.markdown-preview-enhanced`, optional)
 - GitHub Copilot (`github.copilot`) - AI assistant; reads `.github/copilot-instructions.md` for project-specific coding conventions (indentation, naming, workflow)
 
-### *Build (TODO)*
+### Build and run
+
+Build a wheel:
 
 ```sh
-<build command>
+poetry build
 ```
 
-### *Run locally (TODO)*
+Run from source:
 
 ```sh
-<project> --help
-<run-from-source command>
+poetry run gen --help
+poetry run gen -vv --out ~/my-images make "a sunset" -i 30 --cfg 7.0
+poetry run gen sync ~/existing/images
 ```
 
 ### Testing
@@ -623,7 +533,8 @@ make test               # plain test run, no integration tests
 make integration        # run the integration tests
 poetry run pytest -vvv  # verbose test run, includes integration tests
 
-make cov  # coverage run, equivalent to: poetry run pytest --cov=src --cov-report=term-missing
+make cov  # coverage run with typeguard, equivalent to:
+          # poetry run pytest --typeguard-packages=transnext --cov=src --cov-report=term-missing -q tests
 ```
 
 A test can be marked with a "tag" by just adding a decorator:
@@ -649,19 +560,17 @@ You can use them to filter tests, for example:
 poetry run pytest -vvv -m slow  # run only the slow tests
 ```
 
-You can find the slowest tests by running (example suggestions):
+You can find the slowest tests by running:
 
 ```sh
 poetry run pytest -vvv -q --durations=20
 poetry run pytest -vvv -q --durations=20 -m "not slow"  # find unknown slow methods
-poetry run pytest -vvv -q --durations=20 -m slow        # check methods marked `slow` are in fact slow
 ```
 
-You can search for flaky tests by running `make flakes`, which runs all tests 100 times. Or you can do more, like in the example:
+You can search for flaky tests by running `make flakes`, which runs all tests 100 times:
 
 ```sh
 make flakes  # equivalent to: poetry run pytest --flake-finder --flake-runs=100 -q tests
-poetry run pytest --flake-finder --flake-runs=10000 -m "not slow"
 ```
 
 #### Instrumenting your code
@@ -670,9 +579,9 @@ You can instrument your code to find bottlenecks:
 
 ```sh
 $ source .venv/bin/activate
-$ which mycli
-/path/to/.venv/bin/mycli  # <== place this in the command below:
-$ pyinstrument -r html -o output1.html -- /path/to/.venv/bin/mycli <your-cli-command> <your-cli-flags>
+$ which gen
+/path/to/.venv/bin/gen  # <== place this in the command below:
+$ pyinstrument -r html -o output1.html -- /path/to/.venv/bin/gen -vv --out ~/foo make "test prompt"
 $ deactivate
 ```
 
@@ -684,36 +593,15 @@ Integration tests validate packaging and the installed console script by:
 
 - building a wheel from the repository
 - installing that wheel into a fresh temporary virtualenv
-- running the installed console script(s) to verify behavior (for example, `--version` and basic commands)
+- running the installed `gen` console script to verify behavior (`--version` and basic commands)
 
-The canonical integration test is [tests_integration/test_installed_cli.py](tests_integration/test_installed_cli.py). It uses helpers from `transcrypto.utils.config` to simplify the workflow:
-
-- `EnsureAndInstallWheel(repo_root, tmp_path, expected_version, app_names)` — builds the wheel and installs it into a temporary venv, returning the venv python and `bin` directory.
-- `EnsureConsoleScriptsPrintExpectedVersion(vpy, bin_dir, expected_version, app_names)` — verifies the console scripts exist and that `--version` prints the expected version.
-- `CallGetConfigDirFromVEnv(vpy, app_name)` — calls the installed CLI inside the venv to find its data/config directory (used for cleanup/isolation).
-
-Tests in this suite are marked with `pytest.mark.integration`.
+The canonical integration test is [tests_integration/test_installed_cli.py](tests_integration/test_installed_cli.py). Tests in this suite are marked with `pytest.mark.integration`.
 
 Run the integration tests with:
 
 ```sh
-# Run only integration-marked tests (recommended)
-poetry run pytest -m integration -q
-
-# Or run the full integration target (equivalent)
-make integration
+make integration  # or: poetry run pytest -m integration -q
 ```
-
-Notes:
-
-- These tests are slower and require `poetry`/venv support on the host system.
-- Keep the `_APP_NAME` / `_APP_NAMES` constants in the test aligned with your package and console-script names.
-- Use `--no-color` in assertions to avoid ANSI escape sequences when checking output.
-
-#### *Golden tests for CLI output (TODO)*
-
-- *Human output:*
-- *JSON output:*
 
 ### Linting / formatting / static analysis
 
@@ -736,22 +624,25 @@ make type  # equivalent to: poetry run mypy src tests tests_integration
 
 (Pyright is primarily for editor-time; MyPy is what CI enforces.)
 
-### *Documentation updates (TODO)*
+### Documentation updates
 
-- *How docs are built: \<mkdocs/docusaurus/sphinx/etc.\>*
-- *CLI reference generation:*
+CLI reference documentation (`gen.md`) is auto-generated from the Typer app:
+
+```sh
+make docs  # or: poetry run gen markdown > gen.md
+```
+
+Always run `make docs` (or `make ci`) before committing to keep the CLI docs in sync.
 
 ### Versioning and releases
-
-Make sure you are familiar with the [`poetrycli` Features explained](#poetrycli-features-explained) for this project so you understand the philosophy behind developing for the structure here.
 
 #### Versioning scheme
 
 This project follows a pragmatic versioning approach:
 
 - **Patch**: bug fixes / docs / small improvements.
-- **Minor**: new template features or non-breaking developer workflow changes.
-- **Major**: breaking template changes (e.g., required file/command renames).
+- **Minor**: new features or non-breaking changes.
+- **Major**: breaking changes (e.g., DB schema changes, CLI flag renames).
 
 See: [CHANGELOG.md](CHANGELOG.md)
 
@@ -762,16 +653,14 @@ See: [CHANGELOG.md](CHANGELOG.md)
 Poetry can bump versions:
 
 ```sh
-# bump the version!
-poetry version minor  # updates 1.6 to 1.7, for example
+poetry version minor  # updates 1.0.0 to 1.1.0, for example
 # or:
-poetry version patch  # updates 1.6 to 1.6.1
+poetry version patch  # updates 1.0.0 to 1.0.1
 # or:
 poetry version <version-number>
-# (also updates `pyproject.toml` and `poetry.lock`)
 ```
 
-This updates `[project].version` in `pyproject.toml`. **Remember to also update `src/<your_pkg>/__init__.py` to match (this repo gets/prints `__version__` from there)!**
+This updates `[project].version` in `pyproject.toml`. **Remember to also update `src/transnext/__init__.py` to match (this repo gets/prints `__version__` from there)!**
 
 ##### Update dependency versions
 
@@ -787,11 +676,9 @@ poetry add -G dev "pkg>=1.2.3"  # adds dep to dev code ("group" dev)
 # also remember: "pkg@^1.2.3" = latest 1.* ; "pkg@~1.2.3" = latest 1.2.* ; "pkg@1.2.3" exact
 ```
 
-Keep tool versions aligned. Remember to check your diffs before submitting (especially `poetry.lock`) to avoid surprises!
-
 ##### Exporting the `requirements.txt` file
 
-This template does not generate `requirements.txt` automatically (Poetry uses `poetry.lock`). If you need a `requirements.txt` for Docker/legacy tooling, use Poetry’s export plugin (`poetry-plugin-export`) by simply running:
+Poetry uses `poetry.lock` as the primary lockfile. If you need a `requirements.txt` for Docker/legacy tooling:
 
 ```sh
 make req  # or: poetry export --format requirements.txt --without-hashes --output requirements.txt
@@ -806,8 +693,8 @@ Make sure to run `make docs` or even better `make ci`. Both will update the CLI 
 Publish to GIT, including a TAG:
 
 ```sh
-git commit -a -m "release version 0.1.0"
-git tag 0.1.0
+git commit -a -m "release version 1.1.0"
+git tag 1.1.0
 git push
 git push --tags
 ```
@@ -823,88 +710,38 @@ poetry publish
 
 Remember to update [CHANGELOG.md](CHANGELOG.md).
 
-### *Contributing (TODO)*
-
-- *See `CONTRIBUTING.md*`
-- *Code of conduct: `CODE_OF_CONDUCT.md`*
-
 ## Security
 
 Please refer to the security policy in [SECURITY.md](SECURITY.md) for supported versions and how to report vulnerabilities.
 
 The project has a [**codeql**](https://codeql.github.com/docs/) config file in `.github/workflows/codeql.yaml` that weekly (defaulting to Fridays) scans the project for code quality and security issues. It will also run on all commits. Github security issues will be opened in the project if anything is found.
 
-### *Supply chain (TODO)*
+## Troubleshooting
 
-- *Dependency pinning:*
-- *Signed releases: \<GPG/cosign\>*
-- *SBOM: \<available? where?\>*
-
-## *Reliability (TODO)*
-
-### *Operational guidance (TODO)*
-
-- *Recommended timeouts:*
-- *Retry behavior:*
-- *Idempotency:*
-
-### *Running in automation (TODO)*
-
-- *CI usage examples*
-- *Cron usage examples*
-- *Non-interactive flags (`--yes`, `--json`, `--quiet`)*
-
-### *Failure modes (TODO)*
-
-- *Network failures:*
-- *Partial failures: \<exit code + output behavior\>*
-- *Rate limiting:*
-
-## *Troubleshooting (TODO)*
-
-### *Enable debug output (TODO)*
+### Enable debug output
 
 ```sh
-<project> --verbose
-<project> --log-level debug <command>
+poetry run gen -vvv --out ~/my-images make "test prompt"
 ```
 
-### *Common issues (TODO)*
+The `-vvv` flag enables DEBUG-level logging, which will show full API payloads, database operations, and image processing details.
 
-- *Problem:*
-*Cause:*
-*Fix:*
+### Common issues
 
-- *Problem:*
-*Fix:*
+- **`Failed to connect to SDNext API`**: Make sure the SDNext server is running and accessible at the configured host:port. Check with `curl http://127.0.0.1:7860/sdapi/v1/sd-models`.
+- **`Model with name "..." not found`**: The model name is matched as a substring against known model names. Run with `-vv` to see available models after they are fetched from the API. Use a more specific substring.
+- **`With --no-db you must specify --out`**: When running without the database (`--no-db`), you must provide an output directory via `--out`.
+- **`DB on disk ... differs from loaded DB ...`**: Two processes tried to write the DB simultaneously. The safe-save mechanism prevents data loss. Retry the operation.
 
-### *Collect diagnostics (TODO)*
+## Glossary
 
-```sh
-<project> debug report --output diagnostics.zip
-```
-
-## *FAQ (TODO)*
-
-### *FAQ Section I (TODO)*
-
-#### *Why does `<project>` need `<permission/dependency>`? (TODO)*
-
-*\<Answer\>*
-
-#### *How do I migrate from version X to Y? (TODO)*
-
-*\<Answer + link to migration guide\>*
-
-#### *How stable is the JSON output? (TODO)*
-
-*\<Answer + schema contract\>*
-
-## *Glossary (TODO)*
-
-- A
-- B
+- **A1111** — [Automatic1111 web UI](https://github.com/AUTOMATIC1111/stable-diffusion-webui), the original Stable Diffusion web UI; SDNext is a fork/successor
+- **CFG** — Classifier-Free Guidance; the mechanism that steers generation toward the prompt
+- **CLIP** — Contrastive Language-Image Pre-training; the text encoder used by Stable Diffusion
+- **SDXL** — Stable Diffusion XL; a larger, higher-quality Stable Diffusion model architecture
+- **SDNext** — [SD.Next](https://github.com/vladmandic/sdnext); the Stable Diffusion server this tool communicates with
+- **txt2img** — Text-to-image generation; creating an image from a text prompt
 
 ---
 
-*Thanks!* - Daniel Balparda
+*Thanks!* — Daniel Balparda & BellaKeri
