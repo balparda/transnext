@@ -148,6 +148,7 @@
     "ipynb",
     "ipywidgets",
     "isort",
+    "karras",
     "librt",
     "linkify",
     "litestar",

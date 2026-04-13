@@ -133,7 +133,7 @@ class AIMetaType(TypedDict):
   cfg_end: int  # CFG end step used in AI processing (times 10 for int storage)
   sampler: str  # base.Sampler string used in AI processing
   parser: str  # base.QueryParser string used for the prompts
-  clip_skip: int  # CLIP skip used in AI processing
+  clip_skip: int  # CLIP skip used in AI processing (times 10 for int storage)
 
 
 def AIMetaTypeFactory(overrides: dict[str, object] | None = None) -> AIMetaType:
@@ -335,12 +335,34 @@ class AIDatabase:
       )
       logging.info(f'DB saved to {self._config.path}: {prev_label} -> {self.label}')
 
-  def GetModelHash(self, model_name: str, *, api: APIProtocol) -> str:
+  def RefreshDBModels(self, api: APIProtocol) -> None:
+    """Refresh the DB models by fetching from the API and updating the DB. Does NOT delete models.
+
+    Args:
+      api: APIProtocol instance to use for fetching available models
+
+    """
+    models: list[AIModelType] = api.GetModels()
+    # add missing hashes
+    all_paths: set[str] = {model['path'] for model in self._db['models'].values() if model['path']}
+    for model in models:
+      if model['path'] in all_paths:
+        continue  # skip duplicates by path (we know we have this one), we only want unique models
+      if not model['hash'].strip():
+        logging.warning(f'Model with empty hash received from API, hashing {model["path"]}')
+        model['hash'] = hashes.Hash256(pathlib.Path(model['path']).read_bytes()).hex()
+      logging.info(f'Adding model to DB: {model["name"]} -> {model["hash"]}')
+      self._db['models'][model['hash']] = model  # add to DB models
+    # done, log
+    logging.info(f'Refreshed DB models; total models in DB: {len(self._db["models"])}')
+
+  def GetModelHash(self, model_name: str, *, api: APIProtocol | None = None) -> str:
     """Get the model hash for a given model key. If API is given will also try to fetch.
 
     Args:
       model_name: The model name to look up
-      api: APIProtocol instance to use for fetching available models if not already in DB
+      api: (default None) APIProtocol instance to use for fetching available models automatically;
+          if None, it will only search in the existing DB models and will not attempt to fetch
 
     Returns:
       The model hash corresponding to the given model name
@@ -361,19 +383,11 @@ class AIDatabase:
       raise Error(f'Multiple models found matching name "{model_name}": {possible_models}')
     if len(possible_models) == 1:
       return possible_models[0]['hash']  # found unique
-    # model not found, we will fetch *all* models
+    # model not found, we will fetch *all* models, if possible
+    if not api:
+      raise Error(f'Model with name "{model_name}" not found in DB')  # in this case it's an error!
     logging.warning(f'Model with name "{model_name}" not found in DB, fetching all models from API')
-    models: list[AIModelType] = api.GetModels()
-    # add missing hashes
-    all_paths: set[str] = {model['path'] for model in self._db['models'].values() if model['path']}
-    for model in models:
-      if model['path'] in all_paths:
-        continue  # skip duplicates by path (we know we have this one), we only want unique models
-      if not model['hash'].strip():
-        logging.warning(f'Model with empty hash received from API, hashing {model["path"]}')
-        model['hash'] = hashes.Hash256(pathlib.Path(model['path']).read_bytes()).hex()
-      logging.info(f'Adding model to DB: {model["name"]} -> {model["hash"]}')
-      self._db['models'][model['hash']] = model  # add to DB models
+    self.RefreshDBModels(api)
     # we have refreshed the DB models, try searching again
     possible_models = [
       model for model in self._db['models'].values() if model_name in model['name'].lower()
@@ -387,13 +401,13 @@ class AIDatabase:
       f'{[model["name"] for model in self._db["models"].values()]}'
     )
 
-  def Txt2Img(self, api: APIProtocol, meta: AIMetaType) -> tuple[DBImageType, bytes]:
+  def Txt2Img(self, meta: AIMetaType, api: APIProtocol) -> tuple[DBImageType, bytes]:
     """Generate image from text prompt, store in DB.
 
     Args:
-      api: APIProtocol instance to use for making the API call
       meta: AIMetaType object containing the generation metadata (e.g., prompt, steps,
           seed, width, height, sampler_id, model_key)
+      api: APIProtocol instance to use for making the API call
 
     Returns:
       A tuple containing the DBImageType object and the raw image data.
@@ -501,9 +515,9 @@ class AIDatabase:
             self._db['images'][img_hash] = new_entry
             new_image += 1
             logging.info(f'Imported new image {img_hash[:12]}: {img_path}')
-          except Error:
+          except (ValueError, tbase.Error) as err:
             meta_error += 1
-            logging.error(f'Could not import image, skipping: {img_path}')
+            logging.error(f'Could not import image, skipping {img_path}: {err}')
     # check for deleted images — paths that no longer exist on disk
     for img_hash, db_entry in self._db['images'].items():
       # gather all known paths for this image (main + alt), check which ones still exist
@@ -624,21 +638,22 @@ def _FindModelHash(partial_hash: str, models: set[str]) -> str:
   Returns:
     The full model hash if a unique prefix match is found, or an empty string if not found
 
+  Raises:
+    Error: on error
+
   """
   partial_hash = partial_hash.strip().lower()
   if not partial_hash:
-    return ''
+    raise Error('Model hash cannot be empty')
   if partial_hash in models:
     return partial_hash  # exact match
   matches: list[str] = [h for h in models if h.lower().startswith(partial_hash)]
   if len(matches) == 1:
     logging.info(f'Matched partial model hash {partial_hash!r} -> {matches[0]}')
-    return matches[0]
+    return matches[0]  # found!
   if len(matches) > 1:
-    logging.warning(f'Ambiguous partial model hash {partial_hash!r} matches {len(matches)} models')
-  else:
-    logging.warning(f'Model hash {partial_hash!r} not found in DB')
-  return ''
+    raise Error(f'Ambiguous partial model hash {partial_hash!r} matches {len(matches)} models')
+  raise Error(f'Model hash {partial_hash!r} not found in DB')
 
 
 def _ImportImageFile(
@@ -684,44 +699,39 @@ def _ImportImageFile(
   # resolve model hash
   partial: str = meta_raw.get('model hash', '')
   model_hash: str = _FindModelHash(partial, models) if partial else ''
-
-  def _to_int10(key: str, default: int) -> int:
-    """Parse a float field and return it multiplied by 10."""  # noqa: DOC201
-    val: str = meta_raw.get(key, '')
-    if not val:
-      return default
-    try:
-      return round(float(val) * 10)
-    except ValueError:
-      return default
-
-  def _to_int(key: str, default: int) -> int:
-    """Parse an int field."""  # noqa: DOC201
-    val: str = meta_raw.get(key, '')
-    if not val:
-      return default
-    try:
-      return int(val)
-    except ValueError:
-      return default
-
   # build metadata for DB entry, using defaults if parsing fails or fields are missing
-  ai_meta: AIMetaType = AIMetaTypeFactory(
-    {
-      'model_hash': model_hash,
-      'positive': meta_raw.get('positive', ''),
-      'negative': meta_raw.get('negative') or None,
-      'seed': _to_int('seed', -1),  # -1 triggers random seed generation in factory
-      'width': _to_int('width', width),
-      'height': _to_int('height', height),
-      'steps': _to_int('steps', base.SD_DEFAULT_ITERATIONS),
-      'cfg_scale': _to_int10('cfg scale', base.SD_DEFAULT_CFG_SCALE),
-      'cfg_end': _to_int10('cfg end', base.SD_DEFAULT_CFG_END),
-      'sampler': meta_raw.get('sampler', base.SD_DEFAULT_SAMPLER.value),
-      'parser': meta_raw.get('parser', base.SD_DEFAULT_QUERY_PARSER.value),
-      'clip_skip': base.SD_DEFAULT_CLIP_SKIP,
-    }
-  )
+  ai_meta: AIMetaType = {
+    # MANDATORY FIELDS (must be present and valid, otherwise we consider this image as malformed)
+    'model_hash': model_hash,
+    'positive': meta_raw.get('positive', ''),
+    'seed': int(meta_raw.get('seed', 'no seed')),
+    'width': width,
+    'height': height,
+    'steps': int(meta_raw.get('steps', 'no steps')),
+    'cfg_scale': round(float(meta_raw.get('cfg scale', 'no cfg')) * 10),  # remember to convert
+    'sampler': base.Sampler(meta_raw.get('sampler', '')).value,
+    # OPTIONAL FIELDS (if missing will have defaults, but if present must be valid)
+    'negative': meta_raw.get('negative') or None,
+    'cfg_end': round(float(meta_raw.get('cfg end', base.SD_EMPTY_CFG_END)) * 10),
+    'parser': base.QueryParser(meta_raw.get('parser', base.SD_EMPTY_QUERY_PARSER)).value,
+    'clip_skip': round(float(meta_raw.get('clip skip', base.SD_EMPTY_CLIP_SKIP)) * 10),  # convert!
+  }
+  # do checks; be strict
+  if not 1 < ai_meta['seed'] <= ai.AI_MAX_SEED:
+    raise Error(f'Invalid seed value in image metadata: {ai_meta["seed"]} (from {img_path})')
+  meta_width = int(meta_raw.get('width', 'no width'))
+  meta_height = int(meta_raw.get('height', 'no height'))
+  if meta_width != width or meta_height != height:
+    raise Error(f'Dim mismatch: {meta_width}x{meta_height} vs {width}x{height} (from {img_path})')
+  if not 1 <= ai_meta['steps'] <= base.SD_MAX_ITERATIONS:
+    raise Error(f'Invalid iterations metadata: {ai_meta["steps"]} (from {img_path})')
+  if not 10 <= ai_meta['cfg_scale'] <= base.SD_MAX_CFG_SCALE:  # noqa: PLR2004
+    raise Error(f'Invalid CFG Scale metadata: {ai_meta["cfg_scale"]} (from {img_path})')
+  if not 0 <= ai_meta['cfg_end'] <= 10:  # noqa: PLR2004
+    raise Error(f'Invalid CFG End metadata: {ai_meta["cfg_end"]} (from {img_path})')
+  if not 10 <= ai_meta['clip_skip'] <= base.SD_MAX_CLIP_SKIP:  # noqa: PLR2004
+    raise Error(f'Invalid Clip Skip metadata: {ai_meta["clip_skip"]} (from {img_path})')
+  # join everything together into the DBImageType
   return DBImageType(
     hash=img_hash,
     raw_hash=raw_hash,
@@ -731,7 +741,7 @@ def _ImportImageFile(
     width=width,
     height=height,
     format=fmt.value,
-    created_at=timer.Now(),
+    created_at=int(img_path.stat().st_mtime),
     ai_meta=ai_meta,
     sd_info={},
     sd_params=meta_raw,  # type: ignore[typeddict-item]

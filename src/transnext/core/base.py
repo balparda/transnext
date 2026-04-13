@@ -40,6 +40,7 @@ class Sampler(enum.Enum):
   Euler = 'Euler'
   EulerA = 'Euler a'
   Unity = 'UniPC'
+  DPM_SDE = 'DPM SDE'
   DPM_P_SDE = 'DPM++ SDE'
   DPM_P_2M_SDE = 'DPM++ 2M SDE'
 
@@ -54,15 +55,24 @@ class QueryParser(enum.Enum):
   Fixed = 'fixed'
 
 
+# defaults: what we think are good defaults for most cases
 SD_DEFAULT_ITERATIONS: int = 20
+SD_MAX_ITERATIONS: int = 200
 SD_DEFAULT_WIDTH: int = 512
 SD_DEFAULT_HEIGHT: int = 512
 SD_DEFAULT_CFG_SCALE: int = 60  # default to 6.0 (multiply by 10 for CLI option)
+SD_MAX_CFG_SCALE: int = 300  # max 30.0 (multiply by 10 for CLI option)
 SD_DEFAULT_CFG_END: int = 8  # default to 0.8 (end at 80% of the steps; multiply by 10)
-SD_DEFAULT_CLIP_SKIP: int = 1
+SD_DEFAULT_CLIP_SKIP: int = 10  # default to 1.0 (multiply by 10 for CLI option)
+SD_MAX_CLIP_SKIP: int = 50  # max 5.0 (multiply by 10 for CLI option)
 SD_DEFAULT_QUERY_PARSER: QueryParser = QueryParser.A1111
 SD_DEFAULT_SAMPLER: Sampler = Sampler.DPM_P_SDE
 
+# empty: for images we import that have some empty metadata, then these are the defaults
+# these are strings to be inserted in metadata, so they are NOT multiplied by 10 like CLI options
+SD_EMPTY_QUERY_PARSER: str = QueryParser.A1111.value
+SD_EMPTY_CFG_END: str = '1.0'  # for empty prompts, default to 1.0 CFG end (i.e., full guidance)
+SD_EMPTY_CLIP_SKIP: str = '1.0'  # for empty prompts, default to 1.0 CLIP skip
 
 # basic options
 
@@ -135,7 +145,7 @@ SD_STEPS_OPTION: typer.models.OptionInfo = typer.Option(
   '-i',
   '--iterations',
   min=1,
-  max=200,
+  max=SD_MAX_ITERATIONS,
   help=(
     f'Number of steps (iterations) for the image generation; 1 ≤ i ≤ 200; '
     f'default: {SD_DEFAULT_ITERATIONS}'
@@ -159,16 +169,16 @@ SD_WIDTH_OPTION: typer.models.OptionInfo = typer.Option(
   '-w',
   '--width',
   min=16,
-  max=2048,
-  help=f'Width of the generated image; 16 ≤ i ≤ 2048; default: {SD_DEFAULT_WIDTH}',
+  max=4096,
+  help=f'Width of the generated image; 16 ≤ i ≤ 4096; default: {SD_DEFAULT_WIDTH}',
 )
 SD_HEIGHT_OPTION: typer.models.OptionInfo = typer.Option(
   SD_DEFAULT_HEIGHT,
   '-h',
   '--height',
   min=16,
-  max=2048,
-  help=f'Height of the generated image; 16 ≤ i ≤ 2048; default: {SD_DEFAULT_HEIGHT}',
+  max=4096,
+  help=f'Height of the generated image; 16 ≤ i ≤ 4096; default: {SD_DEFAULT_HEIGHT}',
 )
 
 SD_SAMPLER_OPTION: typer.models.OptionInfo = typer.Option(
@@ -184,18 +194,20 @@ SD_QUERY_PARSER_OPTION: typer.models.OptionInfo = typer.Option(
 )
 
 SD_MODEL_KEY_OPTION: typer.models.OptionInfo = typer.Option(  # TODO: fix
-  '',
+  'XLB_v10',
   '-m',
   '--model',
-  help='Model key to use for the generation; if not provided, the default model will be used.',
+  help='Model key to use for the generation; default: "_v10VAEFix"',
 )
 
-SD_CLIP_SKIP_OPTION: typer.models.OptionInfo = typer.Option(
-  SD_DEFAULT_CLIP_SKIP,
+SD_CLIP_SKIP_OPTION: typer.models.OptionInfo = typer.Option(  # TODO: float in future
+  SD_DEFAULT_CLIP_SKIP // 10,  # remember to convert for CLI option
   '--clip',
   min=1,
-  max=5,
-  help=(f'Clip skip value; 1 ≤ c ≤ 5; default: {SD_DEFAULT_CLIP_SKIP}'),
+  max=SD_MAX_CLIP_SKIP // 10,  # remember to convert for CLI option
+  help=(
+    f'Clip skip value; 1 ≤ c ≤ {SD_MAX_CLIP_SKIP // 10}; default: {SD_DEFAULT_CLIP_SKIP // 10}'
+  ),
 )
 
 SD_CFG_SCALE_OPTION: typer.models.OptionInfo = typer.Option(
@@ -203,8 +215,11 @@ SD_CFG_SCALE_OPTION: typer.models.OptionInfo = typer.Option(
   '-g',
   '--cfg',
   min=1.0,
-  max=30.0,
-  help=(f'CFG scale value (guidance scale); 1.0 ≤ c ≤ 30.0; default: {SD_DEFAULT_CFG_SCALE / 10}'),
+  max=SD_MAX_CFG_SCALE / 10,
+  help=(
+    f'CFG scale value (guidance scale); 1.0 ≤ c ≤ {SD_MAX_CFG_SCALE / 10}; '
+    f'default: {SD_DEFAULT_CFG_SCALE / 10}'
+  ),
 )
 SD_CFG_END_OPTION: typer.models.OptionInfo = typer.Option(
   SD_DEFAULT_CFG_END / 10,

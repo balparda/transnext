@@ -33,7 +33,7 @@ def Make(  # documentation is help/epilog/args # noqa: D103
   sampler: base.Sampler = base.SD_SAMPLER_OPTION,  # type: ignore[assignment]
   parser: base.QueryParser = base.SD_QUERY_PARSER_OPTION,  # type: ignore[assignment]
   model_key: str = base.SD_MODEL_KEY_OPTION,  # type: ignore[assignment]
-  clip_skip: int = base.SD_CLIP_SKIP_OPTION,  # type: ignore[assignment]
+  clip_skip: int = base.SD_CLIP_SKIP_OPTION,  # type: ignore[assignment]  # TODO: float in future
   cfg_scale: float = base.SD_CFG_SCALE_OPTION,  # type: ignore[assignment]
   cfg_end: float = base.SD_CFG_END_OPTION,  # type: ignore[assignment]
   backup: bool = base.SD_API_SERVER_SAVE,  # type: ignore[assignment]
@@ -50,7 +50,6 @@ def Make(  # documentation is help/epilog/args # noqa: D103
       ai_db.output = config.output
     # run the generation and store the result in the DB
     ai_db.Txt2Img(
-      api,
       db.AIMetaTypeFactory(
         {
           'positive': positive_prompt,
@@ -62,11 +61,12 @@ def Make(  # documentation is help/epilog/args # noqa: D103
           'sampler': sampler.value,
           'parser': parser.value,
           'model_hash': ai_db.GetModelHash(model_key, api=api),
-          'clip_skip': clip_skip,
-          'cfg_scale': int(round(cfg_scale * 10)),  # store as int (times 10)  # noqa: RUF046
-          'cfg_end': int(round(cfg_end * 10)),  # store as int (times 10)  # noqa: RUF046
+          'clip_skip': round(clip_skip * 10),  # store as int (times 10)
+          'cfg_scale': round(cfg_scale * 10),  # store as int (times 10)
+          'cfg_end': round(cfg_end * 10),  # store as int (times 10)
         }
       ),
+      api,
     )
   # DB is closed and saved
   config.console.print()

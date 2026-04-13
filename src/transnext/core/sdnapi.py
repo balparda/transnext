@@ -178,7 +178,7 @@ class API(db.APIProtocol):
       'prompt_attention': meta['parser'],
       'cfg_scale': meta['cfg_scale'] / 10,  # remember to divide by 10
       'cfg_end': meta['cfg_end'] / 10,  # remember to divide by 10
-      'clip_skip': meta['clip_skip'],  # TODO: one day API will accept float...
+      'clip_skip': meta['clip_skip'] // 10,  # TODO: in future, when accepts float do regular /
       'clip_skip_enabled': True,
     }
     # make the call to the APIs

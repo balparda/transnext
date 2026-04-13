@@ -646,7 +646,7 @@ def testSyncMultipleImagesInDir(tmp_path: pathlib.Path) -> None:
 
 
 @pytest.mark.slow
-def testSyncRealImages(tmp_path: pathlib.Path) -> None:  # noqa: PLR0915
+def testSyncRealImages(tmp_path: pathlib.Path) -> None:
   """Sync against the real test images directory imports both files with exact metadata."""
   # pre-populate models so partial model hashes in image metadata resolve to exact entries
   ai_db = db.AIDatabase(_MakeAppConfig(tmp_path))
@@ -656,94 +656,163 @@ def testSyncRealImages(tmp_path: pathlib.Path) -> None:  # noqa: PLR0915
   ai_db._db['models']['dec85dd6545e07bbd7a0fde6'] = _MakeModel(
     h='dec85dd6545e07bbd7a0fde6', name='SDXL_10_COL_colossusProjectXLSFW_v10bNeodemon'
   )
+  ai_db._db['models']['442394a51be6bb9ea85b'] = _MakeModel(
+    h='442394a51be6bb9ea85b', name='SDXL_13_REF_realisticFreedomSFW_ophelia'
+  )
   # point Sync at the real test image directory (tests/data/images/)
   images_dir: pathlib.Path = (pathlib.Path(__file__).parent.parent / 'data' / 'images').resolve()
   ai_db.Sync(add_dir=images_dir)
-  assert len(ai_db._db['images']) == 2
-  # ── Image 1: 20231116... (crazy / no negative / UniPC / model e6bb9ea85b) ──
-  hash1 = '7b35463de957335e3841b6d9742c6bed706212ce87851f7c3ca93fe268544f4d'
-  assert hash1 in ai_db._db['images']
-  e1: db.DBImageType = ai_db._db['images'][hash1]
-  file1 = '20231116184540-Me6bb9ea85b-Pf4804c3f-C7.5-N30-1884649524-a3fffc692a94bfca.png'
-  assert e1['hash'] == hash1
-  assert e1['raw_hash'] == '7847345e5b4687962637c792e890226b08113e9579f7f1d253d1d6efe7f37363'
-  assert e1['path'] == str(images_dir / file1)
-  assert e1['alt_path'] == []
-  assert e1['size'] == 1938975
-  assert e1['width'] == 1024
-  assert e1['height'] == 1024
-  assert e1['format'] == db.ImageFormat.PNG.value
-  assert e1['sd_info'] == {}
-  m1: db.AIMetaType = e1['ai_meta']
-  assert m1['model_hash'] == 'e6bb9ea85b1065e7bce3cf03'
-  assert m1['positive'] == 'crazy'
-  assert m1['negative'] is None
-  assert m1['seed'] == 1884649524
-  assert m1['width'] == 1024
-  assert m1['height'] == 1024
-  assert m1['steps'] == 30
-  assert m1['cfg_scale'] == 75  # 7.5 * 10
-  assert m1['cfg_end'] == base.SD_DEFAULT_CFG_END  # not in metadata, uses default (8)
-  assert m1['sampler'] == base.Sampler.Unity.value  # 'UniPC'
-  assert m1['parser'] == base.SD_DEFAULT_QUERY_PARSER.value  # not in metadata, default 'a1111'
-  assert m1['clip_skip'] == base.SD_DEFAULT_CLIP_SKIP
-  assert e1['sd_params'] == {
-    'positive': 'crazy',
-    'cfg scale': '7.5',
-    'height': '1024',
-    'model': 'SDXL_00_v10VAEFix',
-    'model hash': 'e6bb9ea85b',
-    'ngms': '2.5',
-    'rng': 'CPU',
-    'sampler': 'UniPC',
-    'seed': '1884649524',
-    'steps': '30',
-    'version': 'v1.6.0',
-    'width': '1024',
-  }
-  # ── Image 2: ea94... (spaceship / negative / DPM++ SDE / model dec85dd654) ──
-  hash2 = 'ec24329d4bd5b333e39ef923a61a66416d459af84c079ae4606e37a5b88a5985'
-  assert hash2 in ai_db._db['images']
-  e2: db.DBImageType = ai_db._db['images'][hash2]
-  file2 = 'ea94a595ace8-20260413105628-dec85dd6-80-30-800-800-1234321-ec24329d4bd5.png'
-  assert e2['hash'] == hash2
-  assert e2['raw_hash'] == '3da9f76cbcc7c4de5a39973e26d09696a1fe1b068d02f12290fe6632a759aec0'
-  assert e2['path'] == str(images_dir / file2)
-  assert e2['alt_path'] == []
-  assert e2['size'] == 519973
-  assert e2['width'] == 800
-  assert e2['height'] == 800
-  assert e2['format'] == db.ImageFormat.PNG.value
-  assert e2['sd_info'] == {}
-  m2: db.AIMetaType = e2['ai_meta']
-  assert m2['model_hash'] == 'dec85dd6545e07bbd7a0fde6'
-  assert m2['positive'] == '(spaceship), space, [photograph]'
-  assert m2['negative'] == 'planet, galaxy'
-  assert m2['seed'] == 1234321
-  assert m2['width'] == 800
-  assert m2['height'] == 800
-  assert m2['steps'] == 30
-  assert m2['cfg_scale'] == 80  # 8.0 * 10
-  assert m2['cfg_end'] == 8  # 0.8 * 10
-  assert m2['sampler'] == base.Sampler.DPM_P_SDE.value  # 'DPM++ SDE'
-  assert m2['parser'] == base.QueryParser.A1111.value  # 'a1111' (explicit in metadata)
-  assert m2['clip_skip'] == base.SD_DEFAULT_CLIP_SKIP
-  assert e2['sd_params'] == {
-    'positive': '(spaceship), space, [photograph]',
-    'negative': 'planet, galaxy',
-    'app': 'SD.Next',
-    'cfg end': '0.8',
-    'cfg scale': '8.0',
-    'height': '800',
-    'model': 'SDXL_10_COL_colossusProjectXLSFW_v10bNeodemon',
-    'model hash': 'dec85dd654',
-    'operations': 'txt2img',
-    'parser': 'a1111',
-    'pipeline': 'StableDiffusionXLPipeline',
-    'sampler': 'DPM++ SDE',
-    'scheduler': 'DPMSolverMultistepScheduler',
-    'seed': '1234321',
-    'steps': '30',
-    'version': '0eb4a98',
-    'width': '800',
+  assert ai_db._db['images'] == {
+    # ── Image 1: 20231116... (crazy / no negative / UniPC / model e6bb9ea85b) ──
+    '7b35463de957335e3841b6d9742c6bed706212ce87851f7c3ca93fe268544f4d': {
+      'hash': '7b35463de957335e3841b6d9742c6bed706212ce87851f7c3ca93fe268544f4d',
+      'path': str(
+        images_dir / '20231116184540-Me6bb9ea85b-Pf4804c3f-C7.5-N30-1884649524-a3fffc692a94bfca.png'
+      ),
+      'alt_path': [],
+      'created_at': 1700211967,
+      'format': 'PNG',
+      'width': 1024,
+      'height': 1024,
+      'raw_hash': '7847345e5b4687962637c792e890226b08113e9579f7f1d253d1d6efe7f37363',
+      'size': 1938975,
+      'ai_meta': {
+        'cfg_end': 10,
+        'cfg_scale': 75,
+        'clip_skip': 10,
+        'height': 1024,
+        'model_hash': 'e6bb9ea85b1065e7bce3cf03',
+        'negative': None,
+        'parser': 'a1111',
+        'positive': 'crazy',
+        'sampler': 'UniPC',
+        'seed': 1884649524,
+        'steps': 30,
+        'width': 1024,
+      },
+      'sd_info': {},
+      'sd_params': {
+        'cfg scale': '7.5',
+        'height': '1024',
+        'model': 'SDXL_00_v10VAEFix',
+        'model hash': 'e6bb9ea85b',
+        'ngms': '2.5',
+        'positive': 'crazy',
+        'rng': 'CPU',
+        'sampler': 'UniPC',
+        'seed': '1884649524',
+        'steps': '30',
+        'version': 'v1.6.0',
+        'width': '1024',
+      },
+    },
+    # ── Image 2: ea94... (spaceship / negative / DPM++ SDE / model dec85dd654) ──
+    'ec24329d4bd5b333e39ef923a61a66416d459af84c079ae4606e37a5b88a5985': {
+      'hash': 'ec24329d4bd5b333e39ef923a61a66416d459af84c079ae4606e37a5b88a5985',
+      'path': str(
+        images_dir / 'ea94a595ace8-20260413105628-dec85dd6-80-30-800-800-1234321-ec24329d4bd5.png'
+      ),
+      'alt_path': [],
+      'created_at': 1776077788,
+      'format': 'PNG',
+      'width': 800,
+      'height': 800,
+      'raw_hash': '3da9f76cbcc7c4de5a39973e26d09696a1fe1b068d02f12290fe6632a759aec0',
+      'size': 519973,
+      'ai_meta': {
+        'cfg_end': 8,
+        'cfg_scale': 80,
+        'clip_skip': 10,
+        'height': 800,
+        'model_hash': 'dec85dd6545e07bbd7a0fde6',
+        'negative': 'planet, galaxy',
+        'parser': 'a1111',
+        'positive': '(spaceship), space, [photograph]',
+        'sampler': 'DPM++ SDE',
+        'seed': 1234321,
+        'steps': 30,
+        'width': 800,
+      },
+      'sd_info': {},
+      'sd_params': {
+        'app': 'SD.Next',
+        'cfg end': '0.8',
+        'cfg scale': '8.0',
+        'height': '800',
+        'model': 'SDXL_10_COL_colossusProjectXLSFW_v10bNeodemon',
+        'model hash': 'dec85dd654',
+        'negative': 'planet, galaxy',
+        'operations': 'txt2img',
+        'parser': 'a1111',
+        'pipeline': 'StableDiffusionXLPipeline',
+        'positive': '(spaceship), space, [photograph]',
+        'sampler': 'DPM++ SDE',
+        'scheduler': 'DPMSolverMultistepScheduler',
+        'seed': '1234321',
+        'steps': '30',
+        'version': '0eb4a98',
+        'width': '800',
+      },
+    },
+    # ── Image 3: 5a18... (crazy woman face / negative / DPM SDE / model XL-CLR-colorful-fractal) ──
+    '5a18babbf7fd09ad6ed7a5334c819d4779958f8b6b9ed8fd9cc3380aa955ee1a': {
+      'hash': '5a18babbf7fd09ad6ed7a5334c819d4779958f8b6b9ed8fd9cc3380aa955ee1a',
+      'path': str(
+        images_dir / 'f8bf9f37-20260413153649-442394a51b-5.4-47-800-800-666999-92ef6d0b.png'
+      ),
+      'alt_path': [],
+      'created_at': 1776091010,
+      'format': 'PNG',
+      'height': 800,
+      'width': 800,
+      'raw_hash': 'b21477f7c524b621cd508f67e4c2b131b26144ac0866cfa4d73438254dfc7e07',
+      'size': 811930,
+      'ai_meta': {
+        'cfg_end': 7,
+        'cfg_scale': 54,
+        'clip_skip': 13,
+        'height': 800,
+        'model_hash': '442394a51be6bb9ea85b',
+        'negative': 'clown, text, cartoon',
+        'parser': 'a1111',
+        'positive': (
+          '((crazy woman face)), [snapshot:photorealistic:0.1], 1960s coloring, colorful fractal\n'
+          '<lora:XL-CLR-colorful-fractal:1.2>'
+        ),
+        'sampler': 'DPM SDE',
+        'seed': 666999,
+        'steps': 47,
+        'width': 800,
+      },
+      'sd_info': {},
+      'sd_params': {
+        'app': 'SD.Next',
+        'cfg end': '0.7',
+        'cfg scale': '5.4',
+        'clip skip': '1.3',
+        'height': '800',
+        'model': 'SDXL_13_REF_realisticFreedomSFW_ophelia',
+        'model hash': '442394a51b',
+        'negative': 'clown, text, cartoon',
+        'operations': 'txt2img',
+        'parser': 'a1111',
+        'pipeline': 'StableDiffusionXLPipeline',
+        'positive': (
+          '((crazy woman face)), [snapshot:photorealistic:0.1], 1960s coloring, colorful fractal\n'
+          '<lora:XL-CLR-colorful-fractal:1.2>'
+        ),
+        'sampler': 'DPM SDE',
+        'sampler beta schedule': 'scaled',
+        'sampler sigma': 'karras',
+        'sampler spacing': 'linspace',
+        'sampler type': 'epsilon',
+        'scheduler': 'DPMSolverSDEScheduler',
+        'seed': '666999',
+        'steps': '47',
+        'variation seed': '777',
+        'variation strength': '0.62',
+        'version': '0eb4a98',
+        'width': '800',
+      },
+    },
   }
