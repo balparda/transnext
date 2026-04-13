@@ -99,6 +99,15 @@ SD_API_SERVER_SAVE: typer.models.OptionInfo = typer.Option(
   ),
 )
 
+SD_FORCE_API: typer.models.OptionInfo = typer.Option(
+  False,
+  '--force-api/--no-force-api',
+  help=(
+    'If True, SDNext API server will be required; '
+    'if False (default) will still TRY to connect to API, but if not found will proceed standalone'
+  ),
+)
+
 # DB options
 
 SD_DB_USE_OPTION: typer.models.OptionInfo = typer.Option(

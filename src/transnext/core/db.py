@@ -439,11 +439,15 @@ class AIDatabase:
     self._db['images'][db_entry['hash']] = db_entry.copy()  # add to DB images
     return (db_entry, img_bytes)
 
-  def Sync(self, *, add_dir: pathlib.Path | str | None = None) -> None:  # noqa: C901, PLR0912, PLR0914, PLR0915
+  def Sync(  # noqa: C901, PLR0912, PLR0914, PLR0915
+    self, *, add_dir: pathlib.Path | str | None = None, api: APIProtocol | None = None
+  ) -> None:
     """Go over all known image dirs, check for new/deleted images, update DB accordingly.
 
     Args:
       add_dir: (default None) Optional additional dir to add to known image sources and sync with
+      api: (default None) APIProtocol instance to use for fetching available models automatically;
+          if None, it will only search in the existing DB models and will not attempt to fetch
 
     Raises:
       Error: if the provided path is invalid or other errors
@@ -452,6 +456,10 @@ class AIDatabase:
     add_dir = pathlib.Path(add_dir).expanduser().resolve() if add_dir else None
     if add_dir and (not add_dir.exists() or not add_dir.is_dir()):
       raise Error(f'Provided directory for sync does not exist: {add_dir}')
+    # if API is provided, we will refresh the DB models first
+    if api:
+      logging.info('API provided for sync, refreshing DB models first')
+      self.RefreshDBModels(api)
     # add the new dir to known sources if not already present
     if add_dir:
       str_add_dir: str = str(add_dir)
@@ -470,7 +478,6 @@ class AIDatabase:
     for dir_path in sorted(pathlib.Path(d) for d in self._db['known_image_sources']):
       # check the source dir exists and is a directory
       if not dir_path.exists() or not dir_path.is_dir():
-        # TODO: we could consider removing this from known sources, but for now just log and skip
         logging.error(f'Known image source dir does not exist, skipping: {dir_path}')
         invalid_sources += 1
         continue

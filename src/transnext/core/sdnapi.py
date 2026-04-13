@@ -27,6 +27,7 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 _SUCCESS_STATUSES: set[int] = {200}
 
+_APP_NAME: str = 'sdnext.git'
 _API_PREFIX: dict[int, str] = {
   1: '/sdapi/v1/',
   2: '/sdapi/v2/',
@@ -36,6 +37,7 @@ _API_PREFIX: dict[int, str] = {
 class Endpoints(enum.Enum):
   """SDNext API endpoints."""
 
+  SYSTEM_STATUS = 'system-info/status'
   MODELS = 'sd-models'
   OPTIONS = 'options'
   RELOAD_CHECKPOINT = 'reload-checkpoint'
@@ -43,6 +45,7 @@ class Endpoints(enum.Enum):
 
 
 _API_TYPES: dict[Endpoints, abc.Callable[..., requests.Response]] = {
+  Endpoints.SYSTEM_STATUS: requests.get,
   Endpoints.MODELS: requests.get,
   Endpoints.OPTIONS: requests.post,
   Endpoints.RELOAD_CHECKPOINT: requests.post,
@@ -52,6 +55,10 @@ _API_TYPES: dict[Endpoints, abc.Callable[..., requests.Response]] = {
 
 class Error(base.Error):
   """TransNext SDNext API exception."""
+
+
+class APIConnectionError(Error, ConnectionError):
+  """TransNext SDNext API connection exception."""
 
 
 class API(db.APIProtocol):
@@ -65,12 +72,16 @@ class API(db.APIProtocol):
       version: API version to use (default is 1)
       server_save_images: Whether if the server will save a copy of the images too (default False)
 
-    """
+    Raises:
+      APIConnectionError: If there is a connection error to the SDNext API.
+
+    """  # noqa: DOC502
     self._api_url: str = api_url
     self._version: int = version
     self._server_save_images: bool = server_save_images
+    server: tuple[str, str] = self.ServerVersion()
     logging.info(
-      f'API(v#{self._version}) @ {self._api_url}{" + SAVE" if self._server_save_images else ""}'
+      f'API(v#{self._version})/{server[0]}/{server[1]} @ {self._api_url}{" + SAVE" if self._server_save_images else ""}'
     )
 
   def Call(self, endpoint: Endpoints, payload: tbase.JSONDict | None = None) -> tbase.JSONValue:
@@ -83,10 +94,39 @@ class API(db.APIProtocol):
     Returns:
       The JSON response from the API as a dictionary.
 
-    """
+    Raises:
+      APIConnectionError: If there is a connection error to the SDNext API.
+
+    """  # noqa: DOC502
     return _Call(
       _API_TYPES[endpoint], self._api_url, _API_PREFIX[self._version] + endpoint.value, payload
     )
+
+  def ServerVersion(self) -> tuple[str, str]:
+    """Get SDNext API server version info.
+
+    Returns:
+      A tuple containing the server version hash and updated timestamp, example:
+      ('0eb4a98e0', '2026-04-04')
+
+    Raises:
+      Error: If there is an error with the API call or if the response is invalid.
+
+    """
+    info: tbase.JSONValue = self.Call(Endpoints.SYSTEM_STATUS, {'full': True, 'refresh': True})
+    if not isinstance(info, dict) or 'version' not in info:
+      raise Error(f'Invalid system status response from SDNext API: {info}')
+    version: dict[str, str] = cast('dict[str, str]', info['version'])
+    if (
+      not isinstance(version, dict)  # pyright: ignore[reportUnnecessaryIsInstance]
+      or 'app' not in version
+      or 'updated' not in version
+      or 'hash' not in version
+    ):
+      raise Error(f'Invalid version info in system status response from SDNext API: {info}')
+    if version['app'] != _APP_NAME:
+      raise Error(f'Unexpected app in version info from SDNext API: {version}')
+    return (version['hash'], version['updated'])
 
   def GetModels(self) -> list[db.AIModelType]:
     """Get list of available models from SDNext API.
@@ -308,18 +348,18 @@ def _Call(
     The JSON response from the API as a dictionary.
 
   Raises:
-    Error: If there is a connection error, if the response status code is not successful,
-        or if there is an error parsing the response.
+    APIConnectionError: If there is a connection error to the SDNext API.
+    Error: If the response status code is not successful or if there is an error parsing response.
 
   """
   full_url: str = f'{sd_url}{endpoint}'
-  logging.info(f'Calling SDNext API {method.__name__.upper()} {full_url} with payload: {payload}')
+  logging.debug(f'Calling SDNext API {method.__name__.upper()} {full_url} with payload: {payload}')
   try:
     req: requests.Response = method(full_url, json=payload, timeout=300, verify=False)
     if req.status_code not in _SUCCESS_STATUSES:
       raise Error(f'Status {req.status_code} {req.reason} - {req.text}')  # noqa: TRY301
     return cast('tbase.JSONValue', req.json())
   except requests.exceptions.ConnectionError as err:
-    raise Error(f'Failed to connect to SDNext API {method} {full_url}') from err
+    raise APIConnectionError(f'Failed to connect to SDNext API {method} {full_url}') from err
   except Exception as err:
     raise Error(f'Error calling SDNext API {method} {full_url}: {err}') from err
