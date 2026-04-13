@@ -75,7 +75,7 @@ def testDefaultConstants() -> None:
   assert base.SD_DEFAULT_HEIGHT == 512
   assert base.SD_DEFAULT_CFG_SCALE == 60
   assert base.SD_DEFAULT_CFG_END == 8
-  assert base.SD_DEFAULT_CLIP_SKIP == 1
+  assert base.SD_DEFAULT_CLIP_SKIP == 10
   assert base.SD_DEFAULT_QUERY_PARSER == base.QueryParser.A1111
   assert base.SD_DEFAULT_SAMPLER == base.Sampler.DPM_P_SDE
 
@@ -90,8 +90,8 @@ def testSamplerValues() -> None:
 
 
 def testSamplerCount() -> None:
-  """Sampler enum has 5 members."""
-  assert len(base.Sampler) == 5
+  """Sampler enum has 6 members."""
+  assert len(base.Sampler) == 6
 
 
 def testQueryParserValues() -> None:

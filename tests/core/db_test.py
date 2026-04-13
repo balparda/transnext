@@ -239,7 +239,7 @@ def testTxt2ImgModelNotInDBRaises(tmp_path: pathlib.Path) -> None:
   meta: db.AIMetaType = _MakeMeta({'model_hash': 'not-in-db'})
   api = _MockAPI()
   with pytest.raises(db.Error, match='not found in DB models'):
-    ai_db.Txt2Img(api, meta)
+    ai_db.Txt2Img(meta, api)
 
 
 def testTxt2ImgExistingImage(tmp_path: pathlib.Path) -> None:
@@ -253,7 +253,7 @@ def testTxt2ImgExistingImage(tmp_path: pathlib.Path) -> None:
   img_file.write_bytes(b'fake-image-data')
   db_img: db.DBImageType = _MakeDBImage(meta=meta, path=str(img_file))
   ai_db._db['images']['deadbeef'] = db_img
-  result_img, result_bytes = ai_db.Txt2Img(mock.MagicMock(), meta)
+  result_img, result_bytes = ai_db.Txt2Img(meta, mock.MagicMock())
   assert result_img['hash'] == 'deadbeef'
   assert result_bytes == b'fake-image-data'
 
@@ -269,7 +269,7 @@ def testTxt2ImgExistingImageFileMissing(tmp_path: pathlib.Path) -> None:
   # set up API to return new image
   new_img: db.DBImageType = _MakeDBImage(meta=meta, img_hash='new-hash')
   api = _MockAPI(txt2img_result=(new_img, b'new-image-data'))
-  result_img, result_bytes = ai_db.Txt2Img(api, meta)
+  result_img, result_bytes = ai_db.Txt2Img(meta, api)
   assert result_img['hash'] == 'new-hash'
   assert result_bytes == b'new-image-data'
   # the old entry should have cleared path
@@ -284,7 +284,7 @@ def testTxt2ImgGenerateNew(tmp_path: pathlib.Path) -> None:
   meta: db.AIMetaType = _MakeMeta({'model_hash': model['hash']})
   new_img: db.DBImageType = _MakeDBImage(meta=meta, img_hash='new-hash')
   api = _MockAPI(txt2img_result=(new_img, b'new-data'))
-  result_img, _ = ai_db.Txt2Img(api, meta)
+  result_img, _ = ai_db.Txt2Img(meta, api)
   assert result_img['hash'] == 'new-hash'
   assert 'new-hash' in ai_db._db['images']
 
