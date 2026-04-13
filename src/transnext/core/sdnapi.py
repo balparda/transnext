@@ -213,7 +213,7 @@ class API(db.APIProtocol):
         f'{meta["cfg_scale"]}-{meta["steps"]}-'
         f'{meta["width"]}-{meta["height"]}-'
         f'{meta["seed"]}-'
-        f'{img_hash[-12:]}.png'
+        f'{img_hash[:12]}.png'
       )
       full_path = out_dir / filename
       full_path.write_bytes(img_data)

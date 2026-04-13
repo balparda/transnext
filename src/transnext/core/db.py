@@ -6,11 +6,14 @@ from __future__ import annotations
 
 import abc as abstract
 import enum
+import io
 import logging
 import pathlib
+import re
 import threading
 from typing import Protocol, Self, TypedDict, cast, runtime_checkable
 
+from PIL import Image
 from transai.core import ai
 from transcrypto.core import aes, hashes, key
 from transcrypto.utils import base as tbase
@@ -70,6 +73,13 @@ class ImageFormat(enum.Enum):
   JPEG = 'JPEG'
   PNG = 'PNG'
   GIF = 'GIF'
+
+
+_PIL_FORMAT_MAP: dict[str, ImageFormat] = {
+  'JPEG': ImageFormat.JPEG,
+  'PNG': ImageFormat.PNG,
+  'GIF': ImageFormat.GIF,
+}
 
 
 class DBImageType(TypedDict):
@@ -415,7 +425,7 @@ class AIDatabase:
     self._db['images'][db_entry['hash']] = db_entry.copy()  # add to DB images
     return (db_entry, img_bytes)
 
-  def Sync(self, *, add_dir: pathlib.Path | str | None = None) -> None:
+  def Sync(self, *, add_dir: pathlib.Path | str | None = None) -> None:  # noqa: C901, PLR0912, PLR0914, PLR0915
     """Go over all known image dirs, check for new/deleted images, update DB accordingly.
 
     Args:
@@ -428,7 +438,304 @@ class AIDatabase:
     add_dir = pathlib.Path(add_dir).expanduser().resolve() if add_dir else None
     if add_dir and (not add_dir.exists() or not add_dir.is_dir()):
       raise Error(f'Provided directory for sync does not exist: {add_dir}')
-    # TODO: implement
+    # add the new dir to known sources if not already present
+    if add_dir:
+      str_add_dir: str = str(add_dir)
+      if str_add_dir not in self._db['known_image_sources']:
+        self._db['known_image_sources'].append(str_add_dir)
+        logging.info(f'Added new image source dir: {add_dir}')
+    # scan all known source dirs for image files
+    valid_sources: int = 0
+    invalid_sources: int = 0
+    valid_image: int = 0
+    invalid_image: int = 0
+    new_image: int = 0
+    meta_error: int = 0
+    total_paths: int = 0
+    existing_paths: int = 0
+    for dir_path in sorted(pathlib.Path(d) for d in self._db['known_image_sources']):
+      # check the source dir exists and is a directory
+      if not dir_path.exists() or not dir_path.is_dir():
+        # TODO: we could consider removing this from known sources, but for now just log and skip
+        logging.error(f'Known image source dir does not exist, skipping: {dir_path}')
+        invalid_sources += 1
+        continue
+      # we have a valid source dir, scan for images
+      valid_sources += 1
+      logging.info(f'Syncing images from source dir: {dir_path}')
+      for img_path in sorted(dir_path.rglob('*')):  # sorted for determinism
+        if img_path.suffix.lower() not in {'.png', '.jpg', '.jpeg', '.gif'}:
+          continue  # not an image file we care about
+        if not img_path.is_file():
+          continue  # skip directories or non-files
+        # try to read the file and hash it
+        try:
+          img_bytes: bytes = img_path.read_bytes()
+        except OSError:
+          logging.error(f'Cannot read image file, skipping: {img_path}')
+          invalid_image += 1
+          continue
+        img_hash: str = hashes.Hash256(img_bytes).hex()
+        valid_image += 1
+        # do we know this hash?
+        if img_hash in self._db['images']:
+          # already known — update path tracking if needed
+          db_entry: DBImageType = self._db['images'][img_hash]
+          str_path: str = str(img_path)
+          alt_path: set[str] = set(db_entry['alt_path'])
+          if db_entry['path'] is None:
+            # add to main entry, remove from alt if it was there
+            db_entry['path'] = str_path
+            logging.debug(f'Restored path for known image {img_hash[:12]}: {img_path}')
+            db_entry['alt_path'] = sorted(alt_path - {str_path})
+          elif db_entry['path'] != str_path:
+            # main entry has a different path, add this one to alt paths if not already there
+            db_entry['alt_path'] = sorted(alt_path | {str_path})
+            logging.debug(f'Added alt path for image {img_hash[:12]}: {img_path}')
+        else:
+          # new image — parse metadata and add to DB
+          try:
+            new_entry: DBImageType = _ImportImageFile(
+              img_path, img_bytes, img_hash, set(self._db['models'])
+            )
+            self._db['images'][img_hash] = new_entry
+            new_image += 1
+            logging.info(f'Imported new image {img_hash[:12]}: {img_path}')
+          except Error:
+            meta_error += 1
+            logging.error(f'Could not import image, skipping: {img_path}')
+    # check for deleted images — paths that no longer exist on disk
+    for img_hash, db_entry in self._db['images'].items():
+      # gather all known paths for this image (main + alt), check which ones still exist
+      all_paths: set[str] = set(db_entry['alt_path'])
+      if db_entry['path']:
+        all_paths.add(db_entry['path'])
+      total_paths += len(all_paths)
+      filtered_paths: set[str] = {p for p in all_paths if pathlib.Path(p).exists()}
+      existing_paths += len(filtered_paths)
+      # if none of the paths exist, clear the path info but keep the DB entry
+      if not filtered_paths:
+        logging.warning(f'All paths for image {img_hash[:12]} are gone, clearing: {all_paths}')
+        db_entry['path'] = None
+        db_entry['alt_path'] = []
+        continue
+      # we have at least one existing path, if the main path is gone, promote an alt path to main
+      if not db_entry['path'] or (db_entry['path'] and not pathlib.Path(db_entry['path']).exists()):
+        db_entry['path'] = filtered_paths.pop()  # promote one of the existing paths to main
+        db_entry['alt_path'] = sorted(filtered_paths)  # the rest become alt paths
+      else:
+        # we should have an OK db_entry['path'] that exists, we remove it from the rest
+        filtered_paths.discard(db_entry['path'])
+        db_entry['alt_path'] = sorted(filtered_paths)
+    # done, log
+    logging.info(
+      f'Sync done: {len(self._db["images"])} unique hashes in DB. Scanned {valid_sources} sources '
+      f'(found {invalid_sources} invalid sources) containing {valid_image} valid images and '
+      f'{invalid_image} invalid images; of these, {new_image} were new and added to the DB, '
+      f'{meta_error} had metadata errors and were ignored; in the DB we had {total_paths} total '
+      f'paths, {existing_paths} still existing, so we dropped {total_paths - existing_paths} paths'
+    )
+
+
+_PARAMS_LINE_RE: re.Pattern[str] = re.compile(
+  r'^(Steps|Sampler|CFG scale|Seed|Size|Model)\s*:', re.IGNORECASE
+)
+_PARAM_SPLIT_RE: re.Pattern[str] = re.compile(r',\s*(?=[A-Za-z][A-Za-z0-9 _]*:)', re.IGNORECASE)
+
+
+def _ParseImageMetadata(info_text: str) -> dict[str, str]:
+  """Parse SDNext/A1111 image metadata string into a key-value dict.
+
+  The metadata string has the structure::
+
+    positive prompt text
+    Negative prompt: negative prompt text
+    Steps: 10, Size: 256x256, Sampler: DPM++ SDE, ..., Seed: 666, Model hash: abc123, ...
+
+  Args:
+    info_text: The raw metadata string from PIL ``img.info``.
+
+  Returns:
+    A dict with lowercase keys including ``'positive'``, ``'negative'`` (may be ``None``/absent),
+    plus all the comma-separated key-value pairs in lowercase with stripped values.
+    Size is split into ``'width'`` and ``'height'``.
+
+  """
+  lines: list[str] = info_text.strip().split('\n')
+  result: dict[str, str] = {}
+  # gather positive prompt lines until we hit the negative or params line
+  positive_lines: list[str] = []
+  remainder: str = ''
+  for i, line in enumerate(lines):
+    if line.startswith('Negative prompt:'):
+      # everything from here on is remainder to parse; preserve newlines for later splitting
+      remainder = '\n'.join([line, *lines[i + 1 :]])
+      break
+    # check if this line looks like a params line (starts with a known keyword + colon + number)
+    if _PARAMS_LINE_RE.match(line):
+      remainder = ' '.join(lines[i:])
+      break
+    positive_lines.append(line)
+  else:
+    # no break — all lines are prompt
+    remainder = ''
+  result['positive'] = '\n'.join(positive_lines).strip()
+  # split remainder into negative prompt and params
+  if remainder.startswith('Negative prompt:'):
+    # find where the params line begins (first line-break or comma-sep key pattern)
+    neg_and_params: str = remainder[len('Negative prompt:') :].strip()
+    # heuristic: params start after the last newline before known keys
+    # split on newlines first to get the negative, then params
+    neg_parts: list[str] = neg_and_params.split('\n', 1)
+    result['negative'] = neg_parts[0].strip()
+    remainder = neg_parts[1].strip() if len(neg_parts) > 1 else ''
+  # parse comma-separated key: value pairs from remainder
+  # we can't just split on ',' because values may contain commas (model names, etc.)
+  # instead we split on ', <Key>:' boundaries using regex
+  param_text: str = remainder.strip()
+  if param_text:
+    # split on boundaries where ', Word:' or ', Word Word:' appear
+    parts: list[str] = _PARAM_SPLIT_RE.split(param_text)
+    for part in parts:
+      if ':' not in part:
+        continue
+      k, _, v = part.partition(':')
+      key_norm: str = k.strip().lower()
+      val_norm: str = v.strip()
+      if key_norm == 'size':
+        # split 'WxH' or 'W x H' into separate keys
+        size_match: re.Match[str] | None = re.match(r'(\d+)\s*[xX]\s*(\d+)', val_norm)
+        if size_match:
+          result['width'] = size_match.group(1)
+          result['height'] = size_match.group(2)
+      else:
+        result[key_norm] = val_norm
+  # done
+  return result
+
+
+def _FindModelHash(partial_hash: str, models: set[str]) -> str:
+  """Find a full model hash in the DB by prefix-matching a partial hash.
+
+  Args:
+    partial_hash: A partial (prefix) hash string to match against DB model hashes.
+    models: The DB models set (hashes only).
+
+  Returns:
+    The full model hash if a unique prefix match is found, or an empty string if not found
+
+  """
+  partial_hash = partial_hash.strip().lower()
+  if not partial_hash:
+    return ''
+  if partial_hash in models:
+    return partial_hash  # exact match
+  matches: list[str] = [h for h in models if h.lower().startswith(partial_hash)]
+  if len(matches) == 1:
+    logging.info(f'Matched partial model hash {partial_hash!r} -> {matches[0]}')
+    return matches[0]
+  if len(matches) > 1:
+    logging.warning(f'Ambiguous partial model hash {partial_hash!r} matches {len(matches)} models')
+  else:
+    logging.warning(f'Model hash {partial_hash!r} not found in DB')
+  return ''
+
+
+def _ImportImageFile(
+  img_path: pathlib.Path, img_bytes: bytes, img_hash: str, models: set[str]
+) -> DBImageType:
+  """Parse an image file from disk and create a DBImageType entry.
+
+  Supports SDNext/A1111 PNG metadata in ``img.info['parameters']`` or
+  ``img.info['UserComment']``.
+
+  Args:
+    img_path: Path to the image file.
+    img_bytes: Raw bytes of the image file (already read).
+    img_hash: Precomputed SHA-256 hex digest of the file bytes.
+    models: The DB models set (hashes only).
+
+  Returns:
+    A populated DBImageType for the image.
+
+  Raises:
+    Error: If the image cannot be opened or has an unsupported format.
+
+  """
+  # open image from buffer
+  with Image.open(io.BytesIO(img_bytes)) as img:
+    # make sure format is known
+    fmt: ImageFormat | None = _PIL_FORMAT_MAP.get((img.format or '').upper())
+    if not fmt:
+      raise Error(f'Unsupported image format {img.format!r}: {img_path}')
+    # get the internal data we need (size and hash)
+    width: int = img.width
+    height: int = img.height
+    raw_hash: str = hashes.Hash256(img.convert('RGBA').tobytes()).hex()
+    # try to extract metadata from PNG info tags, either 'parameters' or 'UserComment'
+    info_text: str = ''
+    pil_info: tbase.JSONDict = img.info  # type: ignore[assignment]
+    if 'parameters' in pil_info and isinstance(pil_info['parameters'], str):
+      info_text = pil_info['parameters']
+    elif 'UserComment' in pil_info and isinstance(pil_info['UserComment'], str):
+      info_text = pil_info['UserComment']
+  # parse metadata
+  meta_raw: dict[str, str] = _ParseImageMetadata(info_text) if info_text else {}
+  # resolve model hash
+  partial: str = meta_raw.get('model hash', '')
+  model_hash: str = _FindModelHash(partial, models) if partial else ''
+
+  def _to_int10(key: str, default: int) -> int:
+    """Parse a float field and return it multiplied by 10."""  # noqa: DOC201
+    val: str = meta_raw.get(key, '')
+    if not val:
+      return default
+    try:
+      return round(float(val) * 10)
+    except ValueError:
+      return default
+
+  def _to_int(key: str, default: int) -> int:
+    """Parse an int field."""  # noqa: DOC201
+    val: str = meta_raw.get(key, '')
+    if not val:
+      return default
+    try:
+      return int(val)
+    except ValueError:
+      return default
+
+  # build metadata for DB entry, using defaults if parsing fails or fields are missing
+  ai_meta: AIMetaType = AIMetaTypeFactory(
+    {
+      'model_hash': model_hash,
+      'positive': meta_raw.get('positive', ''),
+      'negative': meta_raw.get('negative') or None,
+      'seed': _to_int('seed', -1),  # -1 triggers random seed generation in factory
+      'width': _to_int('width', width),
+      'height': _to_int('height', height),
+      'steps': _to_int('steps', base.SD_DEFAULT_ITERATIONS),
+      'cfg_scale': _to_int10('cfg scale', base.SD_DEFAULT_CFG_SCALE),
+      'cfg_end': _to_int10('cfg end', base.SD_DEFAULT_CFG_END),
+      'sampler': meta_raw.get('sampler', base.SD_DEFAULT_SAMPLER.value),
+      'parser': meta_raw.get('parser', base.SD_DEFAULT_QUERY_PARSER.value),
+      'clip_skip': base.SD_DEFAULT_CLIP_SKIP,
+    }
+  )
+  return DBImageType(
+    hash=img_hash,
+    raw_hash=raw_hash,
+    path=str(img_path),
+    alt_path=[],
+    size=len(img_bytes),
+    width=width,
+    height=height,
+    format=fmt.value,
+    created_at=timer.Now(),
+    ai_meta=ai_meta,
+    sd_info={},
+    sd_params=meta_raw,  # type: ignore[typeddict-item]
+  )
 
 
 def _DBLabel(db: _DBType) -> str:
