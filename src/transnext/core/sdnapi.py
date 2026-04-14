@@ -24,6 +24,7 @@ from transcrypto.core import hashes
 from transcrypto.utils import base as tbase
 from transcrypto.utils import human, timer
 
+from transnext import __version__
 from transnext.core import base, db
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -95,14 +96,21 @@ class API(db.APIProtocol):
     Raises:
       APIConnectionError: If there is a connection error to the SDNext API.
 
-    """  # noqa: DOC502
+    """
     self._api_url: str = api_url
     self._server_save_images: bool = server_save_images
     commit, updated = self.ServerVersion()
-    self._version: str = commit  # TODO: add to generation data
+    if not commit or not updated:
+      raise APIConnectionError(f'Failed to get version from SDNext API: {commit!r}, {updated!r}')
+    self._version: str = commit
     logging.info(
       f'API/{commit}/{updated} @ {self._api_url}{" + SAVE" if self._server_save_images else ""}'
     )
+
+  @property
+  def version(self) -> str:
+    """Get the SDNext API server version."""
+    return self._version
 
   def Call(self, api_call: APICalls, payload: tbase.JSONDict | None = None) -> tbase.JSONValue:
     """Call SDNext API endpoint with given payload.
@@ -634,6 +642,8 @@ class API(db.APIProtocol):
       'height': meta['height'],
       'format': db.ImageFormat.PNG.value,
       'created_at': tm_created,
+      'origin': db.ImageOrigin.TransNext.value,
+      'version': f'{self.version}/{__version__}',  # TransNext version is like '0eb4a98e0/1.0.0'
       'ai_meta': meta.copy(),
       'sd_info': json.loads(cast('str', data['info'])),
       'sd_params': cast('tbase.JSONDict', data['parameters']),
