@@ -42,6 +42,10 @@ def Make(  # documentation is help/epilog/args # noqa: D103
   config: gen.GenConfig = ctx.obj
   if not config.db and not config.output:
     raise click.UsageError('With `--no-db` you must specify `--out`')
+  if sampler.value in {s.value for s in base.SamplerA1111}:
+    raise click.UsageError(
+      f'Sampler {sampler.value!r} not supported by SDNext (it was valid in A1111 but not in SDNext)'
+    )
   # open API and DB
   api = sdnapi.API(base.MakeURL(config.host, config.port), server_save_images=backup)
   with db.AIDatabase(config.appconfig, read_only=not config.db) as ai_db:

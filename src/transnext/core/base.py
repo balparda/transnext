@@ -122,7 +122,6 @@ class SamplerA1111(enum.Enum):
   DPM_P_2S_A_KARRAS = 'DPM++ 2S a Karras'
   DPM_P_3M_SDE = 'DPM++ 3M SDE'
   DPM_P_3M_SDE_KARRAS = 'DPM++ 3M SDE Karras'
-  # TODO: implement this in txt2img ingestion
 
 
 SAMPLER_EQUIVALENCE_A1111_TO_SDNEXT: dict[SamplerA1111, Sampler] = {

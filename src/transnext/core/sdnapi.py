@@ -566,7 +566,7 @@ class API(db.APIProtocol):
     if model['hash'] != meta['model_hash']:
       raise Error(f'Model hash mismatch: expected {meta["model_hash"]}, got {model["hash"]}')
     # TODO: we used to load the model here, maybe we should check if it's already loaded
-    # set the options
+    # sanity check some options
     if (
       meta['width'] <= 0
       or meta['height'] <= 0
@@ -574,6 +574,9 @@ class API(db.APIProtocol):
       or meta['height'] % 16 != 0
     ):
       raise Error(f'Invalid image dimensions: {meta}')
+    if meta['sampler'] in {s.value for s in base.SamplerA1111}:
+      raise Error(f'Sampler {meta["sampler"]!r} not supported by SDNext')
+    # set the options
     options: tbase.JSONDict = {
       'save_images': self._server_save_images,
       'send_images': True,
