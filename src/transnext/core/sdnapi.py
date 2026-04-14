@@ -68,8 +68,8 @@ _API_CALL_MATRIX: dict[
   # see <http://127.0.0.1:7860/docs> for details on the API
   APICalls.STATUS: (APIVersions.V2, Endpoints.SYSTEM_STATUS, requests.get),
   APICalls.MODELS: (APIVersions.V1, Endpoints.MODELS, requests.get),
-  APICalls.READ_OPTIONS: (APIVersions.V1, Endpoints.OPTIONS, requests.get),
-  APICalls.SET_OPTIONS: (APIVersions.V1, Endpoints.OPTIONS, requests.post),
+  APICalls.READ_OPTIONS: (APIVersions.V2, Endpoints.OPTIONS, requests.get),
+  APICalls.SET_OPTIONS: (APIVersions.V2, Endpoints.OPTIONS, requests.post),
   APICalls.RELOAD_CHECKPOINT: (APIVersions.V1, Endpoints.RELOAD_CHECKPOINT, requests.post),
   APICalls.TXT2IMG: (APIVersions.V1, Endpoints.TXT2IMG, requests.post),
 }
@@ -200,6 +200,99 @@ class API(db.APIProtocol):
       raise Error(f'Unexpected app in version info from SDNext API: {version}')
     return (version['commit'], version['updated'])
 
+  @property
+  def options(self) -> tbase.JSONDict:
+    """Get current SDNext API options.
+
+    Schema:
+
+    {
+      'sd_model_checkpoint': 'SDXL_00_XLB_v10VAEFix',
+      'sd_checkpoint_hash': 'e6bb9ea85bbf7bf6478a7c6d18b71246f22e95d41bcdd80ed40aa212c33cfeff',
+      'samples_filename_pattern': '[prompt_hash]-[datetime]-[model_hash]-[image_hash]',
+      'show_progress_every_n_steps': 10,
+      'live_preview_refresh_period': 5000,
+      'samples_format': 'png',
+      'grid_format': 'png',
+      'save_images_add_number': False,
+      'no_half': True,
+      'diffusers_generator_device': 'CPU',
+      'olive_vae_encoder_float32': True,
+      'save_to_dirs': True,
+      'theme_style': 'Dark',
+      'autolaunch': True,
+      'font_size': 16,
+      'ui_columns': 6,
+      'diffusers_model_load_variant': 'fp32',
+      'diffusers_vae_load_variant': 'fp32',
+      'cfgzero_enabled': True,
+      'cfgzero_steps': 2,
+      'gradio_theme': 'Default',
+      'prompt_attention': 'a1111',
+      'clip_skip_enabled': True,
+      'show_progress_type': 'Approximate',
+      'lora_add_hashes_to_infotext': True,
+      'lora_fuse_native': False,
+      'lora_in_memory_limit': 2,
+      'schedulers_sigma': 'karras',
+      'schedulers_timestep_spacing': 'linspace',
+      'schedulers_beta_schedule': 'scaled',
+      'schedulers_prediction_type': 'epsilon',
+      'clip_skip': 1,
+      'uni_pc_lower_order_final': True,
+      'uni_pc_order': 2,
+      'sdnq_dequantize_compile': False,
+      'ckpt_dir': 'models/Stable-diffusion',
+      'diffusers_dir': 'models/Diffusers',
+      'hfcache_dir': 'models/huggingface',
+      'vae_dir': 'models/VAE',
+      'unet_dir': 'models/UNET',
+      'te_dir': 'models/Text-encoder',
+      'lora_dir': 'models/Lora',
+      'tunable_dir': 'models/tunable',
+      'embeddings_dir': 'models/embeddings',
+      'onnx_temp_dir': 'models/ONNX/temp',
+      'outdir_txt2img_samples': 'outputs/text',
+      'outdir_img2img_samples': 'outputs/image',
+      'outdir_control_samples': 'outputs/control',
+      'outdir_extras_samples': 'outputs/extras',
+      'outdir_init_images': 'outputs/inputs',
+      'outdir_txt2img_grids': 'outputs/grids',
+      'outdir_img2img_grids': 'outputs/grids',
+      'outdir_control_grids': 'outputs/grids',
+      'outdir_save': 'outputs/save',
+      'outdir_video': 'outputs/video',
+      'styles_dir': 'models/styles',
+      'yolo_dir': 'models/yolo',
+      'wildcards_dir': 'models/wildcards',
+      'theme_type': 'Modern',
+      'ui_disabled': [],
+      'lora_functional': False,
+    }
+
+    Returns:
+      A dictionary containing the current options.
+
+    Raises:
+      Error: If there is an error with the API call or if the response is invalid.
+
+    """
+    options: tbase.JSONValue = self.Call(APICalls.READ_OPTIONS)
+    if not isinstance(options, dict):
+      raise Error(f'Invalid options response from SDNext API: {options}')
+    return options
+
+  @options.setter
+  def options(self, new_options: tbase.JSONDict) -> None:
+    """Set SDNext API options.
+
+    Args:
+      new_options: A dictionary containing the options to set.
+
+    """
+    self.Call(APICalls.SET_OPTIONS, new_options)
+    logging.info(f'Options set in SDNext API: {new_options}')
+
   def GetModels(self) -> list[db.AIModelType]:
     """Get list of available models from SDNext API.
 
@@ -233,20 +326,6 @@ class API(db.APIProtocol):
       parsed.append(new_model)
     # done, return
     return parsed
-
-  def LoadModel(self, model: str) -> None:
-    """Load model in SDNext API.
-
-    Args:
-      model: Model name to load (e.g., "model1")
-
-    """
-    logging.info(f'Loading model in SDNext API: {model}')
-    with timer.Timer(emit_log=False) as tmr_load:
-      # TODO: only call if needed!
-      self.Call(APICalls.SET_OPTIONS, {'sd_model_checkpoint': model})
-      self.Call(APICalls.RELOAD_CHECKPOINT)  # needed if running in api-only to trigger new load
-    logging.info(f'Model loaded in SDNext API in {tmr_load}')
 
   def Txt2Img(
     self, model: db.AIModelType, meta: db.AIMetaType, *, dir_root: pathlib.Path | None = None
@@ -562,10 +641,21 @@ class API(db.APIProtocol):
           or if the image data is invalid.
 
     """
-    # look at model loading
+    # set options; most importantly, set the model if needed
+    base_options: tbase.JSONDict = {
+      'clip_skip_enabled': True,
+    }
     if model['hash'] != meta['model_hash']:
       raise Error(f'Model hash mismatch: expected {meta["model_hash"]}, got {model["hash"]}')
-    # TODO: we used to load the model here, maybe we should check if it's already loaded
+    if (current_model := str(self.options['sd_model_checkpoint'] or '')) != model['name']:
+      logging.info(f'Switching models for generation: {current_model!r} -> {model["name"]!r}')
+      with timer.Timer(emit_log=False) as tmr_load:
+        base_options['sd_model_checkpoint'] = model['name']
+        self.options = base_options  # set the model, this will trigger the load in SDNext
+        self.Call(APICalls.RELOAD_CHECKPOINT)  # needed if running in api-only to trigger new load
+      logging.info(f'Model loaded in SDNext API in {tmr_load}')
+    else:
+      self.options = base_options  # set the options minus the model; will quickly call API
     # sanity check some options
     if (
       meta['width'] <= 0
@@ -592,8 +682,7 @@ class API(db.APIProtocol):
       'prompt_attention': meta['parser'],
       'cfg_scale': meta['cfg_scale'] / 10,  # remember to divide by 10
       'cfg_end': meta['cfg_end'] / 10,  # remember to divide by 10
-      'clip_skip': meta['clip_skip'] // 10,  # TODO: in future, when accepts float do regular /
-      'clip_skip_enabled': True,  # NOT LISTED IN SCHEMA!
+      'clip_skip': meta['clip_skip'] // 10,  # TODO: in future, when accepts float do regular div
     }
     # make the call to the APIs
     logging.info(f'Generating image with SDNext API, options: {options}')

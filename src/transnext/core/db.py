@@ -92,8 +92,7 @@ _PIL_FORMAT_MAP: dict[str, ImageFormat] = {
   'GIF': ImageFormat.GIF,
 }
 
-_EXTENSIONS_TO_PARSE_LOWER: set[str] = {'.png'}  # , '.jpg', '.jpeg', '.gif'}
-# TODO: consider all
+_EXTENSIONS_TO_PARSE_LOWER: set[str] = {'.png', '.jpg', '.jpeg', '.gif'}
 
 
 class DBImageType(TypedDict):
