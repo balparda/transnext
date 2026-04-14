@@ -250,7 +250,7 @@ class API(db.APIProtocol):
     Schema:
 
     {
-      "sd_model_checkpoint": "string",
+      "sd_model_checkpoint": "string",                     ==> CONTEMPLATED
       "prompt": "",                                        ==> CONTEMPLATED
       "negative_prompt": "",                               ==> CONTEMPLATED
       "seed": -1,                                          ==> CONTEMPLATED
@@ -557,7 +557,7 @@ class API(db.APIProtocol):
     # look at model loading
     if model['hash'] != meta['model_hash']:
       raise Error(f'Model hash mismatch: expected {meta["model_hash"]}, got {model["hash"]}')
-    self.LoadModel(model['name'])
+    # TODO: we used to load the model here, maybe we should check if it's already loaded
     # set the options
     if (
       meta['width'] <= 0
@@ -569,7 +569,7 @@ class API(db.APIProtocol):
     options: tbase.JSONDict = {
       'save_images': self._server_save_images,
       'send_images': True,
-      # TODO: set "sd_model_checkpoint" directly here?
+      'sd_model_checkpoint': model['name'],
       'prompt': meta['positive'],
       'negative_prompt': meta['negative'],
       'steps': meta['steps'],
@@ -638,6 +638,9 @@ class API(db.APIProtocol):
       'sd_info': json.loads(cast('str', data['info'])),
       'sd_params': cast('tbase.JSONDict', data['parameters']),
     }
+    # make sure the model and dimensions are coherent as sanity checks
+    if (gen_model := db_image['sd_params']['sd_model_checkpoint']) != model['name']:
+      raise Error(f'Model name mismatch: expected {model["name"]}, got {gen_model}: {data}')
     if (
       meta['width'] != db_image['sd_info']['width']
       or meta['height'] != db_image['sd_info']['height']
