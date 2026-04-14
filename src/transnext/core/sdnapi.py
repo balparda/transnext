@@ -632,22 +632,23 @@ class API(db.APIProtocol):
       full_path.write_bytes(img_data)
       logging.info(f'SDNext API image saved: {full_path}, {human.HumanizedBytes(len(img_data))}')
     # create the metadata
-    db_image: db.DBImageType = {
-      'hash': img_hash,
-      'raw_hash': raw_hash,
-      'path': str(full_path) if full_path else None,
-      'alt_path': [],
-      'size': len(img_data),
-      'width': meta['width'],
-      'height': meta['height'],
-      'format': db.ImageFormat.PNG.value,
-      'created_at': tm_created,
-      'origin': db.ImageOrigin.TransNext.value,
-      'version': f'{self.version}/{__version__}',  # TransNext version is like '0eb4a98e0/1.0.0'
-      'ai_meta': meta.copy(),
-      'sd_info': json.loads(cast('str', data['info'])),
-      'sd_params': cast('tbase.JSONDict', data['parameters']),
-    }
+    db_image: db.DBImageType = db.DBImageType(
+      hash=img_hash,
+      raw_hash=raw_hash,
+      path=str(full_path) if full_path else None,
+      alt_path=[],
+      size=len(img_data),
+      width=meta['width'],
+      height=meta['height'],
+      format=db.ImageFormat.PNG.value,
+      created_at=tm_created,
+      origin=db.ImageOrigin.TransNext.value,
+      version=f'{self.version}/{__version__}',  # TransNext version is like '0eb4a98e0/1.0.0'
+      ai_meta=meta.copy(),
+      sd_info=json.loads(cast('str', data['info'])),
+      sd_params=cast('tbase.JSONDict', data['parameters']),
+      parse_errors=[],
+    )
     # make sure the model and dimensions are coherent as sanity checks
     if (gen_model := db_image['sd_params']['sd_model_checkpoint']) != model['name']:
       raise Error(f'Model name mismatch: expected {model["name"]}, got {gen_model}: {data}')

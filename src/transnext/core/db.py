@@ -110,9 +110,10 @@ class DBImageType(TypedDict):
   created_at: int  # timestamp of when the image was added to the DB
   origin: str | None  # ImageOrigin of the image, if known, otherwise None
   version: str | None  # version of the software that generated the image, if known, otherwise None
-  ai_meta: AIMetaType  # AI generation metadata
+  ai_meta: AIMetaType | None  # AI generation metadata; None: not an AI-gen image we could parse
   sd_info: tbase.JSONDict  # additional info from SDNext API response
   sd_params: tbase.JSONDict  # additional info from SDNext API response
+  parse_errors: list[str]  # any errors encountered during parsing of the image metadata
 
 
 class AIModelType(TypedDict):
@@ -138,7 +139,7 @@ class AIMetaType(TypedDict):
   No dict, no list. If we add that we'll have to implement custom comparison.
   """
 
-  model_hash: str  # AI model hash
+  model_hash: str | None  # AI model hash (only None if we could not parse/find the model)
   positive: str  # positive prompt used for AI processing
   negative: str | None  # negative prompt used for AI processing
   seed: int  # seed used in AI processing
@@ -165,7 +166,7 @@ def AIMetaTypeFactory(overrides: dict[str, object] | None = None) -> AIMetaType:
 
   """
   obj: AIMetaType = {
-    'model_hash': '',
+    'model_hash': None,
     'positive': '',
     'negative': None,
     'seed': -1,  # start with random flag
@@ -509,6 +510,7 @@ class AIDatabase:
     invalid_image: int = 0
     new_image: int = 0
     meta_error: int = 0
+    img_error: int = 0
     Image.MAX_IMAGE_PIXELS = 500_000_000  # set a high limit to avoid DecompressionBombError
     with timer.Timer(emit_log=False) as tmr_add:
       for img_path in tqdm.tqdm(
@@ -549,19 +551,22 @@ class AIDatabase:
           try:
             new_entry: DBImageType = _ImportImageFile(
               img_path, img_bytes, img_hash, set(self._db['models'])
-            )  # TODO: try..catch in _ImportImageFile, create a ParseError with partial struct
+            )
             self._db['images'][img_hash] = new_entry
             new_image += 1
-            logging.info(f'Imported new image {img_hash[:12]}: {img_path}')
+            if new_entry['parse_errors']:
+              meta_error += 1
+            logging.debug(f'Imported new image {img_hash[:12]}: {img_path}')
           except (ValueError, tbase.Error) as err:
-            meta_error += 1  # TODO: add error entry with a field indicating the error
+            img_error += 1
             logging.error(f'Could not import image, skipping {img_path}: {err}')
     # done, log
     logging.info(
       f'Sync done in {tmr_add}: {len(self._db["images"])} unique hashes in DB. '
       f'Scanned {valid_sources} dir sources containing {valid_image} valid images and '
       f'{invalid_image} invalid images; of these, {new_image} were new and added to the DB, '
-      f'{meta_error} had metadata errors and were ignored. Now checking for deleted images...'
+      f'{meta_error} had metadata errors, {img_error} had irrecoverable errors and were ignored. '
+      'Now checking for deleted images...'
     )
     # check for deleted images — paths that no longer exist on disk
     total_paths: int = 0
@@ -706,7 +711,7 @@ def _FindModelHash(partial_hash: str, models: set[str]) -> str:
   """
   partial_hash = partial_hash.strip().lower()
   if not partial_hash:
-    raise Error('Model hash cannot be empty')
+    raise Error('empty model hash')
   if partial_hash in models:
     return partial_hash  # exact match
   matches: list[str] = [h for h in models if h.lower().startswith(partial_hash)]
@@ -714,11 +719,11 @@ def _FindModelHash(partial_hash: str, models: set[str]) -> str:
     logging.debug(f'Matched partial model hash {partial_hash!r} -> {matches[0]}')
     return matches[0]  # found!
   if len(matches) > 1:
-    raise Error(f'Ambiguous partial model hash {partial_hash!r} matches {len(matches)} models')
-  raise Error(f'Model hash {partial_hash!r} not found in DB')
+    raise Error(f'ambiguous model #{partial_hash} matches {len(matches)}')
+  raise Error(f'model #{partial_hash} not found')
 
 
-def _ImportImageFile(  # noqa: C901, PLR0912, PLR0914
+def _ImportImageFile(  # noqa: C901, PLR0912, PLR0914, PLR0915
   img_path: pathlib.Path, img_bytes: bytes, img_hash: str, models: set[str]
 ) -> DBImageType:
   """Parse an image file from disk and create a DBImageType entry.
@@ -736,7 +741,7 @@ def _ImportImageFile(  # noqa: C901, PLR0912, PLR0914
     A populated DBImageType for the image.
 
   Raises:
-    Error: If the image cannot be opened or has an unsupported format.
+    Error: unsupported format or AI incomplete image
 
   """
   # open image from buffer
@@ -758,64 +763,144 @@ def _ImportImageFile(  # noqa: C901, PLR0912, PLR0914
       info_text = pil_info['UserComment']
   # we have the metadata text, first check it is an AI image
   if not info_text.strip():
-    raise Error('No metadata text found in image info; not an AI-generated image we can parse')
+    # could not find metadata, we consider this a non-AI image
+    return DBImageType(
+      hash=img_hash,
+      raw_hash=raw_hash,
+      path=str(img_path),
+      alt_path=[],
+      size=len(img_bytes),
+      width=width,
+      height=height,
+      format=fmt.value,
+      created_at=int(img_path.stat().st_mtime),
+      origin=None,
+      version=None,
+      ai_meta=None,
+      sd_info={},
+      sd_params={},
+      parse_errors=['no AI metadata'],
+    )
   # parse metadata
   meta_raw: dict[str, str] = _ParseImageMetadata(info_text) if info_text else {}
+  parse_errors: list[str] = []
   # resolve model hash
   partial: str = meta_raw.get('model hash', '')
-  model_hash: str = _FindModelHash(partial, models) if partial else ''
+  model_hash: str | None = None
+  try:
+    model_hash = _FindModelHash(partial, models) if partial else None
+  except Error as err:
+    parse_errors.append(str(err))
   # get version
   img_origin: ImageOrigin | None = None
   app_version: str | None = None
+  empty_query_parser: str = base.SD_EMPTY_QUERY_PARSER
   if meta_raw.get('version'):
     if meta_raw.get('app', '').lower() == 'sd.next':
       # if loading through here, SDNext undistinguishable from TransNext
       img_origin, app_version = ImageOrigin.SDNext, meta_raw['version']
+      empty_query_parser = base.QueryParser.SDNextNative.value
     else:
       img_origin, app_version = ImageOrigin.A1111, meta_raw['version']
+      empty_query_parser = base.QueryParser.A1111.value
   # build metadata for DB entry, using defaults if parsing fails or fields are missing
+
+  def _IntKey(key: str, default: int) -> int:
+    try:
+      return int(meta_raw.get(key, 'no ' + key))
+    except ValueError as err:
+      parse_errors.append(f'{key}: {err} -> {default}')
+      return default
+
+  def _FloatKey(key: str, default: int, *, empty: str | None = None) -> int:
+    try:
+      return round(float(meta_raw.get(key, empty or ('no ' + key))) * 10)  # remember to convert!
+    except ValueError as err:
+      parse_errors.append(f'{key}: {err} -> {default}')
+      return default
+
+  def _EnumKey[T: enum.Enum](tp: type[T], key: str, default: T, *, empty: str | None = None) -> T:
+    try:
+      return tp(meta_raw.get(key, empty or ('no ' + key)))
+    except ValueError as err:
+      parse_errors.append(f'{key}: {err} -> {default.value}')
+      return default
+
   ai_meta: AIMetaType = {
     # MANDATORY FIELDS (must be present and valid, otherwise we consider this image as malformed)
     'model_hash': model_hash,
     'positive': meta_raw.get('positive', ''),
-    'seed': int(meta_raw.get('seed', 'no seed')),
+    'seed': _IntKey('seed', -1),
     'width': width,
     'height': height,
-    'steps': int(meta_raw.get('steps', 'no steps')),
-    'cfg_scale': round(float(meta_raw.get('cfg scale', 'no cfg')) * 10),  # remember to convert
-    'sampler': base.Sampler(meta_raw.get('sampler', '')).value,
+    'steps': _IntKey('steps', 0),
+    'cfg_scale': _FloatKey('cfg scale', 0),
+    'sampler': _EnumKey(base.Sampler, 'sampler', base.Sampler.Euler_A).value,
     # OPTIONAL FIELDS (if missing will have defaults, but if present must be valid)
     'negative': meta_raw.get('negative') or None,
-    'cfg_end': round(float(meta_raw.get('cfg end', base.SD_EMPTY_CFG_END)) * 10),
-    'parser': base.QueryParser(meta_raw.get('parser', base.SD_EMPTY_QUERY_PARSER)).value,
-    'clip_skip': round(float(meta_raw.get('clip skip', base.SD_EMPTY_CLIP_SKIP)) * 10),  # convert!
+    'cfg_end': _FloatKey('cfg end', 0, empty=base.SD_EMPTY_CFG_END),
+    'parser': _EnumKey(
+      base.QueryParser, 'parser', base.SD_DEFAULT_QUERY_PARSER, empty=empty_query_parser
+    ).value,
+    'clip_skip': _FloatKey('clip skip', 0, empty=base.SD_EMPTY_CLIP_SKIP),
   }
   # do checks; be strict
-  if not 0 < ai_meta['seed'] <= 2**64 - 1:  # allow 1, and up to ~2**64
-    # have to be more liberal here because there are some edge cases in the wild
-    raise Error(f'Invalid seed value in image metadata: {ai_meta}')
+  # SEED
+  if not 0 < ai_meta['seed'] <= 2**32 - 1:
+    # have to be more liberal here because there are more edge cases in the wild
+    parse_errors.append('`seed` out of bounds')
   if ai_meta['seed'] > ai.AI_MAX_SEED:
     logging.debug(f'High seed value (>{ai.AI_MAX_SEED}) in image metadata: {ai_meta}')
+  # DIMENSIONS
   meta_width = int(meta_raw.get('width', 'no width'))
   meta_height = int(meta_raw.get('height', 'no height'))
   if meta_width != width or meta_height != height:
     meta_px: int = meta_width * meta_height
     actual_px: int = width * height
     if meta_px and actual_px and meta_px < actual_px and actual_px / meta_px > 1.5:  # noqa: PLR2004
-      # the hallmark of a img->img upscaler
-      logging.info(f'Image probably upscaled: {meta_width}x{meta_height} -> {width}x{height}')
+      # the hallmark of a img->img upscaler: actual >> meta, and a significant difference
+      parse_errors.append('upscaled')
+    elif (
+      meta_width  # noqa: PLR0916
+      and meta_height
+      and (meta_width % 16 or meta_height % 16)
+      and not width % 16
+      and not height % 16
+      and actual_px
+      and meta_px > actual_px
+      and meta_px / actual_px < 1.1  # noqa: PLR2004
+    ):
+      # the hallmark of an image that had its dimensions corrected to be a multiple of 16:
+      # meta is not a multiple, but actual is, and they are super close in dimensions
+      parse_errors.append('size corrected / 16')
+    elif (
+      meta_width  # noqa: PLR0916
+      and meta_height
+      and (meta_width % 8 or meta_height % 8)
+      and not width % 8
+      and not height % 8
+      and actual_px
+      and meta_px > actual_px
+      and meta_px / actual_px < 1.1  # noqa: PLR2004
+    ):
+      # the hallmark of an image that had its dimensions corrected to be a multiple of 8:
+      # meta is not a multiple, but actual is, and they are super close in dimensions
+      parse_errors.append('size corrected / 8')
     else:
       extra_msg: str = '; probably an unfinished image' if meta_px > actual_px else ''
       raise Error(f'Dim error: {meta_width} x {meta_height} / {width} x {height}{extra_msg}')
+  # STEPS, CFG SCALE, CFG END, CLIP SKIP
   if not 1 <= ai_meta['steps'] <= base.SD_MAX_ITERATIONS:
-    raise Error(f'Invalid iterations metadata: {ai_meta}')
+    parse_errors.append('`steps` out of bounds')
   if not 10 <= ai_meta['cfg_scale'] <= base.SD_MAX_CFG_SCALE:  # noqa: PLR2004
-    raise Error(f'Invalid CFG Scale metadata: {ai_meta}')
+    parse_errors.append('`cfg_scale` out of bounds')
   if not 0 <= ai_meta['cfg_end'] <= 10:  # noqa: PLR2004
-    raise Error(f'Invalid CFG End metadata: {ai_meta}')
+    parse_errors.append('`cfg_end` out of bounds')
   if not 10 <= ai_meta['clip_skip'] <= base.SD_MAX_CLIP_SKIP:  # noqa: PLR2004
-    raise Error(f'Invalid Clip Skip metadata: {ai_meta}')
+    parse_errors.append('`clip_skip` out of bounds')
   # join everything together into the DBImageType
+  if parse_errors:
+    logging.debug(f'Parsed image metadata with errors: {info_text}, errors: {parse_errors}')
   return DBImageType(
     hash=img_hash,
     raw_hash=raw_hash,
@@ -831,6 +916,7 @@ def _ImportImageFile(  # noqa: C901, PLR0912, PLR0914
     ai_meta=ai_meta,
     sd_info={},
     sd_params=meta_raw,  # type: ignore[typeddict-item]
+    parse_errors=parse_errors,
   )
 
 
