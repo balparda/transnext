@@ -341,8 +341,8 @@ class API(db.APIProtocol):
       "prompt": "",                                        ==> CONTEMPLATED
       "negative_prompt": "",                               ==> CONTEMPLATED
       "seed": -1,                                          ==> CONTEMPLATED
-      "subseed": -1,
-      "subseed_strength": 0,
+      "subseed": -1,                                       ==> CONTEMPLATED
+      "subseed_strength": 0,                               ==> CONTEMPLATED
       "seed_resize_from_h": -1,
       "seed_resize_from_w": -1,
       "batch_size": 1,
@@ -684,6 +684,8 @@ class API(db.APIProtocol):
       'steps': meta['steps'],
       'n_iter': 1,
       'seed': meta['seed'],
+      'subseed': base.SeedGen() if meta['v_seed'] is None else meta['v_seed'][0],
+      'subseed_strength': 0 if meta['v_seed'] is None else meta['v_seed'][1] / 100,  # divide by 100
       'width': meta['width'],
       'height': meta['height'],
       'sampler_name': meta['sampler'],

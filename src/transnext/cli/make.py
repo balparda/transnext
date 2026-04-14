@@ -28,6 +28,8 @@ def Make(  # documentation is help/epilog/args # noqa: D103
   negative_prompt: str | None = base.SD_NEGATIVE_PROMPT_OPTION,  # type: ignore[assignment]
   steps: int = base.SD_STEPS_OPTION,  # type: ignore[assignment]
   seed: int | None = base.SD_SEED_OPTION,  # type: ignore[assignment]
+  vseed: int | None = base.SD_VARIATION_SEED_OPTION,  # type: ignore[assignment]
+  vstrength: float = base.SD_VARIATION_STRENGTH_OPTION,  # type: ignore[assignment]
   width: int = base.SD_WIDTH_OPTION,  # type: ignore[assignment]
   height: int = base.SD_HEIGHT_OPTION,  # type: ignore[assignment]
   sampler: base.Sampler = base.SD_SAMPLER_OPTION,  # type: ignore[assignment]
@@ -60,6 +62,7 @@ def Make(  # documentation is help/epilog/args # noqa: D103
           'negative': negative_prompt,
           'steps': steps,
           'seed': seed,
+          'v_seed': (vseed, round(vstrength * 100)) if vseed or vstrength > 0.0 else None,
           'width': width,
           'height': height,
           'sampler': sampler.value,

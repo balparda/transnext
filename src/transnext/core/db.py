@@ -16,11 +16,10 @@ from typing import Protocol, Self, TypedDict, cast, runtime_checkable
 
 import tqdm
 from PIL import Image
-from transai.core import ai
 from transcrypto.core import aes, hashes, key
 from transcrypto.utils import base as tbase
 from transcrypto.utils import config as app_config
-from transcrypto.utils import saferandom, timer
+from transcrypto.utils import timer
 
 from transnext import __version__
 from transnext.core import base
@@ -142,6 +141,7 @@ class AIMetaType(TypedDict):
   positive: str  # positive prompt used for AI processing
   negative: str | None  # negative prompt used for AI processing
   seed: int  # seed used in AI processing
+  v_seed: tuple[int, int] | None  # (variation seed, percent) or None if not used; *100 int storage
   width: int  # image width
   height: int  # image height
   steps: int  # number of steps used in AI processing
@@ -150,39 +150,50 @@ class AIMetaType(TypedDict):
   sampler: str  # base.Sampler string used in AI processing
   parser: str  # base.QueryParser string used for the prompts
   clip_skip: int  # CLIP skip used in AI processing (times 10 for int storage)
+  # TODO: 'sampler beta schedule': 'scaled', / 'schedulers_beta_schedule'
+  # TODO: 'sampler sigma': 'karras', / 'schedulers_sigma'
+  # TODO: 'sampler spacing': 'linspace', / 'schedulers_timestep_spacing'
+  # TODO: 'sampler type': 'epsilon', / 'schedulers_prediction_type'
 
 
 def AIMetaTypeFactory(overrides: dict[str, object] | None = None) -> AIMetaType:
   """Create new AIMetaType object with default values.
 
   SPECIAL CASE: seed in {None, -1, 0} will NOT overwrite, will generate a random seed!
+  SPECIAL CASE: v_seed in {None, -1, 0} and strength>0 will NOT overwrite, will generate random seed
 
   Returns:
     A new AIMetaType object with default values.
 
   Raises:
-    Error: if the resulting seed value is invalid (not in the range 1 < seed ≤ ai.AI_MAX_SEED)
+    Error: if the resulting seed/v_seed value is invalid (not in the range 0 < s ≤ base.SD_MAX_SEED)
 
   """
-  obj: AIMetaType = {
-    'model_hash': None,
-    'positive': '',
-    'negative': None,
-    'seed': -1,  # start with random flag
-    'width': base.SD_DEFAULT_WIDTH,
-    'height': base.SD_DEFAULT_HEIGHT,
-    'steps': base.SD_DEFAULT_ITERATIONS,
-    'sampler': base.SD_DEFAULT_SAMPLER.value,
-    'parser': base.SD_DEFAULT_QUERY_PARSER.value,
-    'cfg_scale': base.SD_DEFAULT_CFG_SCALE,
-    'cfg_end': base.SD_DEFAULT_CFG_END,
-    'clip_skip': base.SD_DEFAULT_CLIP_SKIP,
-  }
+  obj: AIMetaType = AIMetaType(
+    model_hash=None,
+    positive='',
+    negative=None,
+    seed=-1,  # start with random flag
+    v_seed=None,
+    width=base.SD_DEFAULT_WIDTH,
+    height=base.SD_DEFAULT_HEIGHT,
+    steps=base.SD_DEFAULT_ITERATIONS,
+    sampler=base.SD_DEFAULT_SAMPLER.value,
+    parser=base.SD_DEFAULT_QUERY_PARSER.value,
+    cfg_scale=base.SD_DEFAULT_CFG_SCALE,
+    cfg_end=base.SD_DEFAULT_CFG_END,
+    clip_skip=base.SD_DEFAULT_CLIP_SKIP,
+  )
   obj.update(overrides or {})  # type: ignore[typeddict-item]
   # make sure seed is actually set now
-  obj['seed'] = saferandom.RandBits(31) if obj['seed'] in {None, -1, 0} else obj['seed']
-  if not 1 < obj['seed'] <= ai.AI_MAX_SEED:
-    raise Error(f'Invalid seed value in AIMetaType: {obj}')
+  obj['seed'] = base.SeedGen() if obj['seed'] in {None, -1, 0} else obj['seed']
+  if not 0 < obj['seed'] <= base.SD_MAX_SEED:
+    raise Error(f'Invalid `seed` value in AIMetaType: {obj}')
+  if obj['v_seed'] is not None and obj['v_seed'][0] in {None, -1, 0} and obj['v_seed'][1] > 0:
+    obj['v_seed'] = (base.SeedGen(), obj['v_seed'][1])  # type: ignore[typeddict-item]
+  if obj['v_seed'] is not None and not 0 < obj['v_seed'][0] <= base.SD_MAX_SEED:
+    raise Error(f'Invalid `v_seed` value in AIMetaType: {obj}')
+  # done
   return obj
 
 
@@ -781,6 +792,8 @@ def _ImportImageFile(  # noqa: C901, PLR0912, PLR0914, PLR0915
       parse_errors=['no AI metadata'],
     )
   # parse metadata
+  # TODO: create a field and make sure to distinguish txt2img vs img2img
+  # TODO: lora metadata
   meta_raw: dict[str, str] = _ParseImageMetadata(info_text) if info_text else {}
   parse_errors: list[str] = []
   # resolve model hash
@@ -804,16 +817,16 @@ def _ImportImageFile(  # noqa: C901, PLR0912, PLR0914, PLR0915
       empty_query_parser = base.QueryParser.A1111.value
   # build metadata for DB entry, using defaults if parsing fails or fields are missing
 
-  def _IntKey(key: str, default: int) -> int:
+  def _IntKey(key: str, default: int, *, empty: str | None = None) -> int:
     try:
-      return int(meta_raw.get(key, 'no ' + key))
+      return int(meta_raw.get(key, empty or ('no ' + key)))
     except ValueError as err:
       parse_errors.append(f'{key}: {err} -> {default}')
       return default
 
-  def _FloatKey(key: str, default: int, *, empty: str | None = None) -> int:
+  def _FloatKey(key: str, default: int, *, empty: str | None = None, conversion: int = 10) -> int:
     try:
-      return round(float(meta_raw.get(key, empty or ('no ' + key))) * 10)  # remember to convert!
+      return round(float(meta_raw.get(key, empty or ('no ' + key))) * conversion)
     except ValueError as err:
       parse_errors.append(f'{key}: {err} -> {default}')
       return default
@@ -825,31 +838,33 @@ def _ImportImageFile(  # noqa: C901, PLR0912, PLR0914, PLR0915
       parse_errors.append(f'{key}: {err} -> {default.value}')
       return default
 
-  ai_meta: AIMetaType = {
+  v_seed: int = _IntKey('variation seed', -1, empty=base.SD_EMPTY_V_SEED)
+  v_strength: int = _FloatKey(
+    'variation strength', 0, empty=base.SD_EMPTY_V_STRENGTH, conversion=100
+  )
+  ai_meta: AIMetaType = AIMetaType(
     # MANDATORY FIELDS (must be present and valid, otherwise we consider this image as malformed)
-    'model_hash': model_hash,
-    'positive': meta_raw.get('positive', ''),
-    'seed': _IntKey('seed', -1),
-    'width': width,
-    'height': height,
-    'steps': _IntKey('steps', 0),
-    'cfg_scale': _FloatKey('cfg scale', 0),
-    'sampler': _EnumKey(base.Sampler, 'sampler', base.Sampler.Euler_A).value,
+    model_hash=model_hash,
+    positive=meta_raw.get('positive', ''),
+    seed=_IntKey('seed', -1),
+    v_seed=(v_seed, v_strength) if v_seed > 0 and 0 < v_strength <= 100 else None,  # noqa: PLR2004
+    width=width,
+    height=height,
+    steps=_IntKey('steps', 0),
+    cfg_scale=_FloatKey('cfg scale', 0),
+    sampler=_EnumKey(base.Sampler, 'sampler', base.Sampler.Euler_A).value,
     # OPTIONAL FIELDS (if missing will have defaults, but if present must be valid)
-    'negative': meta_raw.get('negative') or None,
-    'cfg_end': _FloatKey('cfg end', 0, empty=base.SD_EMPTY_CFG_END),
-    'parser': _EnumKey(
+    negative=meta_raw.get('negative') or None,
+    cfg_end=_FloatKey('cfg end', 0, empty=base.SD_EMPTY_CFG_END),
+    parser=_EnumKey(
       base.QueryParser, 'parser', base.SD_DEFAULT_QUERY_PARSER, empty=empty_query_parser
     ).value,
-    'clip_skip': _FloatKey('clip skip', 0, empty=base.SD_EMPTY_CLIP_SKIP),
-  }
+    clip_skip=_FloatKey('clip skip', 0, empty=base.SD_EMPTY_CLIP_SKIP),
+  )
   # do checks; be strict
   # SEED
-  if not 0 < ai_meta['seed'] <= 2**32 - 1:
-    # have to be more liberal here because there are more edge cases in the wild
+  if not 0 < ai_meta['seed'] <= base.SD_MAX_SEED:
     parse_errors.append('`seed` out of bounds')
-  if ai_meta['seed'] > ai.AI_MAX_SEED:
-    logging.debug(f'High seed value (>{ai.AI_MAX_SEED}) in image metadata: {ai_meta}')
   # DIMENSIONS
   meta_width = int(meta_raw.get('width', 'no width'))
   meta_height = int(meta_raw.get('height', 'no height'))

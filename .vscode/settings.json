@@ -283,6 +283,8 @@
     "venv",
     "virtualenv",
     "virtualenvs",
+    "vseed",
+    "vstrength",
     "webassets",
     "xdist",
     "xhinker",

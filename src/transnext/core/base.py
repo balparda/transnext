@@ -12,10 +12,9 @@ import pathlib
 from collections import abc
 
 import typer
-from transai.core import ai
 from transcrypto.cli import clibase
 from transcrypto.core import hashes
-from transcrypto.utils import base
+from transcrypto.utils import base, saferandom
 
 
 class Error(base.Error):
@@ -140,6 +139,8 @@ class QueryParser(enum.Enum):
 
 
 # defaults: what we think are good defaults for most cases
+SD_MAX_SEED: int = 2**64 - 1
+SD_DEFAULT_VARIATION_STRENGTH: float = 0.5
 SD_DEFAULT_ITERATIONS: int = 20
 SD_MAX_ITERATIONS: int = 200
 SD_DEFAULT_WIDTH: int = 512
@@ -157,6 +158,10 @@ SD_DEFAULT_SAMPLER: Sampler = Sampler.DPM_P_SDE
 SD_EMPTY_QUERY_PARSER: str = QueryParser.A1111.value
 SD_EMPTY_CFG_END: str = '1.0'  # for empty prompts, default to 1.0 CFG end (i.e., full guidance)
 SD_EMPTY_CLIP_SKIP: str = '1.0'  # for empty prompts, default to 1.0 CLIP skip
+SD_EMPTY_V_SEED: str = '-1'  # for empty prompts, default to -1 variation seed
+SD_EMPTY_V_STRENGTH: str = '0'  # for empty prompts, default to 0.0 variation strength
+
+SeedGen: abc.Callable[[], int] = lambda: saferandom.RandInt(2**16 - 1, SD_MAX_SEED)
 
 # basic options
 
@@ -249,11 +254,32 @@ SD_SEED_OPTION: typer.models.OptionInfo = typer.Option(
   None,
   '-s',
   '--seed',
-  min=2,
-  max=ai.AI_MAX_SEED,
+  min=1,
+  max=SD_MAX_SEED,
   help=(
-    f'Seed for the image generation; 1 < s ≤ {ai.AI_MAX_SEED}; '
+    f'Seed for the image generation; 0 < s ≤ {SD_MAX_SEED}; '
     'if not provided (default), a random seed will be used'
+  ),
+)
+SD_VARIATION_SEED_OPTION: typer.models.OptionInfo = typer.Option(
+  None,
+  '--vseed',
+  min=1,
+  max=SD_MAX_SEED,
+  help=(
+    f'Variation seed for the image generation; 0 < s ≤ {SD_MAX_SEED}; '
+    'if not provided (default) variation seeds will not be used'
+  ),
+)
+SD_VARIATION_STRENGTH_OPTION: typer.models.OptionInfo = typer.Option(
+  SD_DEFAULT_VARIATION_STRENGTH,
+  '--vstrength',
+  min=0.0,
+  max=1.0,
+  help=(
+    'Variation strength for the image generation, i.e., '
+    'how much to mix the variation seed with the base (regular) seed; 0.0 ≤ s ≤ 1.0; '
+    f'default: {SD_DEFAULT_VARIATION_STRENGTH}; only used if variation seed is provided'
   ),
 )
 

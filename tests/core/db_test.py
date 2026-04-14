@@ -11,7 +11,6 @@ from unittest import mock
 
 import pytest
 from PIL import Image, PngImagePlugin
-from transai.core import ai
 from transcrypto.core import hashes, key
 from transcrypto.utils import base as tbase
 from transcrypto.utils import config as app_config
@@ -144,7 +143,7 @@ def testDefaultsWithRandomSeed() -> None:
   assert not result['model_hash']
   assert not result['positive']
   assert result['negative'] is None
-  assert 1 < result['seed'] <= ai.AI_MAX_SEED
+  assert 1 < result['seed'] <= base.SD_MAX_SEED
   assert result['width'] == base.SD_DEFAULT_WIDTH
   assert result['height'] == base.SD_DEFAULT_HEIGHT
   assert result['steps'] == base.SD_DEFAULT_ITERATIONS
@@ -166,7 +165,7 @@ def testOverridesWithFixedSeed() -> None:
 def testSpecialSeedValuesGenerateRandom(seed_val: int | None) -> None:
   """Seeds of None, -1, 0 generate a random seed."""
   result: db.AIMetaType = db.AIMetaTypeFactory({'seed': seed_val})
-  assert 1 < result['seed'] <= ai.AI_MAX_SEED
+  assert 1 < result['seed'] <= base.SD_MAX_SEED
 
 
 def testInvalidSeedRaises() -> None:
@@ -176,9 +175,9 @@ def testInvalidSeedRaises() -> None:
 
 
 def testSeedTooLargeRaises() -> None:
-  """Seed exceeding AI_MAX_SEED raises Error."""
+  """Seed exceeding SD_MAX_SEED raises Error."""
   with pytest.raises(db.Error, match='Invalid seed value'):
-    db.AIMetaTypeFactory({'seed': ai.AI_MAX_SEED + 1})
+    db.AIMetaTypeFactory({'seed': base.SD_MAX_SEED + 1})
 
 
 # ─── AIDatabase ──────────────────────────────────────────────────────────────
