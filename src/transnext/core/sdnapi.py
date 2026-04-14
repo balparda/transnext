@@ -30,31 +30,47 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 _SUCCESS_STATUSES: set[int] = {200}
 
-_APP_NAME: str = 'sdnext.git'
-_API_PREFIX: dict[int, str] = {  # see <http://127.0.0.1:7860/docs> for details on the API
-  1: '/sdapi/v1/',
-  2: '/sdapi/v2/',
-}
+_APP_NAME: str = 'sd.next'
+
+
+class APIVersions(enum.Enum):
+  """SDNext API endpoints."""
+
+  V1 = '/sdapi/v1/'
+  V2 = '/sdapi/v2/'
 
 
 class Endpoints(enum.Enum):
   """SDNext API endpoints."""
 
-  SYSTEM_STATUS = 'system-info/status'
+  SYSTEM_STATUS = 'system-info'
   MODELS = 'sd-models'
-  OPTIONS_READ = 'options'
-  OPTIONS_SET = 'options/'
+  OPTIONS = 'options'
   RELOAD_CHECKPOINT = 'reload-checkpoint'
   TXT2IMG = 'txt2img'
 
 
-_API_TYPES: dict[Endpoints, abc.Callable[..., requests.Response]] = {
-  Endpoints.SYSTEM_STATUS: requests.get,
-  Endpoints.MODELS: requests.get,
-  Endpoints.OPTIONS_READ: requests.get,
-  Endpoints.OPTIONS_SET: requests.post,
-  Endpoints.RELOAD_CHECKPOINT: requests.post,
-  Endpoints.TXT2IMG: requests.post,
+class APICalls(enum.Enum):
+  """SDNext API calls."""
+
+  STATUS = 1
+  MODELS = 2
+  READ_OPTIONS = 3
+  SET_OPTIONS = 4
+  RELOAD_CHECKPOINT = 5
+  TXT2IMG = 6
+
+
+_API_CALL_MATRIX: dict[
+  APICalls, tuple[APIVersions, Endpoints, abc.Callable[..., requests.Response]]
+] = {
+  # see <http://127.0.0.1:7860/docs> for details on the API
+  APICalls.STATUS: (APIVersions.V2, Endpoints.SYSTEM_STATUS, requests.get),
+  APICalls.MODELS: (APIVersions.V1, Endpoints.MODELS, requests.get),
+  APICalls.READ_OPTIONS: (APIVersions.V1, Endpoints.OPTIONS, requests.get),
+  APICalls.SET_OPTIONS: (APIVersions.V1, Endpoints.OPTIONS, requests.post),
+  APICalls.RELOAD_CHECKPOINT: (APIVersions.V1, Endpoints.RELOAD_CHECKPOINT, requests.post),
+  APICalls.TXT2IMG: (APIVersions.V1, Endpoints.TXT2IMG, requests.post),
 }
 
 
@@ -69,12 +85,11 @@ class APIConnectionError(Error, ConnectionError):
 class API(db.APIProtocol):
   """SDNext API client."""
 
-  def __init__(self, api_url: str, *, version: int = 1, server_save_images: bool = False) -> None:
+  def __init__(self, api_url: str, *, server_save_images: bool = False) -> None:
     """Initialize SDNext API client.
 
     Args:
       api_url: Base URL of the SDNext API, e.g. "http://127.0.0.1:5000"
-      version: API version to use (default is 1)
       server_save_images: Whether if the server will save a copy of the images too (default False)
 
     Raises:
@@ -82,19 +97,18 @@ class API(db.APIProtocol):
 
     """  # noqa: DOC502
     self._api_url: str = api_url
-    self._version: int = version
     self._server_save_images: bool = server_save_images
-    server: tuple[str, str] = self.ServerVersion()
+    commit, updated = self.ServerVersion()
+    self._version: str = commit  # TODO: add to generation data
     logging.info(
-      f'API(v#{self._version})/{server[0]}/{server[1]} '
-      f'@ {self._api_url}{" + SAVE" if self._server_save_images else ""}'
+      f'API/{commit}/{updated} @ {self._api_url}{" + SAVE" if self._server_save_images else ""}'
     )
 
-  def Call(self, endpoint: Endpoints, payload: tbase.JSONDict | None = None) -> tbase.JSONValue:
+  def Call(self, api_call: APICalls, payload: tbase.JSONDict | None = None) -> tbase.JSONValue:
     """Call SDNext API endpoint with given payload.
 
     Args:
-      endpoint: API endpoint to call
+      api_call: API call to make
       payload: JSON-serializable payload to send in the request body (default is None)
 
     Returns:
@@ -104,9 +118,8 @@ class API(db.APIProtocol):
       APIConnectionError: If there is a connection error to the SDNext API.
 
     """  # noqa: DOC502
-    return _Call(
-      _API_TYPES[endpoint], self._api_url, _API_PREFIX[self._version] + endpoint.value, payload
-    )
+    version, endpoint, method = _API_CALL_MATRIX[api_call]
+    return _Call(method, self._api_url, version.value + endpoint.value, payload)
 
   def ServerVersion(self) -> tuple[str, str]:
     """Get SDNext API server version info.
@@ -114,24 +127,46 @@ class API(db.APIProtocol):
     Schema:
 
     {
-      "version": {
-        "app":"sdnext.git",
-        "updated":"2026-04-04",
-        "hash":"0eb4a98e0",
-        "url":"https://github.com/vladmandic/sdnext.git/tree/master",
+      'version': {
+        'app': 'sd.next',
+        'updated': '2026-04-04',
+        'commit': '0eb4a98e0',
+        'branch': 'master',
+        'url': 'https://github.com/vladmandic/sdnext/tree/master',
+        'kanvas': 'main',
+        'ui': 'main',
       },
-      "uptime":"Mon Apr 13 23:44:56 2026",
-      "timestamp":"23:45:47",
-      "state":null,
-      "memory":null,
-      "platform":null,
-      "torch":null,
-      "gpu":null,
-      "flags":null,
-      "crossatention":null,
-      "device":null,
-      "backend":null,
-      "pipeline":null,
+      'uptime': 'Tue Apr 14 12:28:21 2026',
+      'timestamp': 'Tue Apr 14 14:04:16 2026',
+      'platform': {
+        'arch': 'arm64',
+        'cpu': 'arm',
+        'system': 'Darwin',
+        'release': '25.3.0',
+        'python': '3.12.13',
+        'locale': "('en_IE', 'UTF-8')",
+        'setuptools': '69.5.1',
+        'docker': 'False',
+      },
+      'torch': '2.7.1',
+      'gpu': {},
+      'device': {
+        'device': 'mps',
+        'dtype': 'torch.float32',
+        'dtype_vae': 'torch.float32',
+        'dtype_unet': 'torch.float32',
+      },
+      'libs': {
+        'torch': '2.7.1',
+        'diffusers': '0.38.0.dev0',
+        'transformers': '5.5.0.dev0',
+        'gradio': '3.43.2',
+        'accelerate': '1.13.0',
+      },
+      'backend': 'DIFFUSERS',
+      'pipeline': 'True',
+      'cross_attention': 'Scaled-Dot-Product',
+      'flags': [],
     }
 
     Returns:
@@ -142,7 +177,7 @@ class API(db.APIProtocol):
       Error: If there is an error with the API call or if the response is invalid.
 
     """
-    info: tbase.JSONValue = self.Call(Endpoints.SYSTEM_STATUS)
+    info: tbase.JSONValue = self.Call(APICalls.STATUS)
     if not isinstance(info, dict) or 'version' not in info:
       raise Error(f'Invalid system status response from SDNext API: {info}')
     version: dict[str, str] = cast('dict[str, str]', info['version'])
@@ -150,12 +185,12 @@ class API(db.APIProtocol):
       not isinstance(version, dict)  # pyright: ignore[reportUnnecessaryIsInstance]
       or 'app' not in version
       or 'updated' not in version
-      or 'hash' not in version
+      or 'commit' not in version
     ):
       raise Error(f'Invalid version info in system status response from SDNext API: {info}')
     if version['app'] != _APP_NAME:
       raise Error(f'Unexpected app in version info from SDNext API: {version}')
-    return (version['hash'], version['updated'])
+    return (version['commit'], version['updated'])
 
   def GetModels(self) -> list[db.AIModelType]:
     """Get list of available models from SDNext API.
@@ -167,7 +202,7 @@ class API(db.APIProtocol):
       Error: If there is an error with the API call or if the response is invalid.
 
     """
-    models: tbase.JSONValue = self.Call(Endpoints.MODELS)
+    models: tbase.JSONValue = self.Call(APICalls.MODELS)
     if not isinstance(models, list) or not models:
       raise Error(f'Invalid models response from SDNext API: {models}')
     # we got a valid response, parse it
@@ -201,8 +236,8 @@ class API(db.APIProtocol):
     logging.info(f'Loading model in SDNext API: {model}')
     with timer.Timer(emit_log=False) as tmr_load:
       # TODO: only call if needed!
-      self.Call(Endpoints.OPTIONS_SET, {'sd_model_checkpoint': model})
-      self.Call(Endpoints.RELOAD_CHECKPOINT)  # needed if running in api-only to trigger new load
+      self.Call(APICalls.SET_OPTIONS, {'sd_model_checkpoint': model})
+      self.Call(APICalls.RELOAD_CHECKPOINT)  # needed if running in api-only to trigger new load
     logging.info(f'Model loaded in SDNext API in {tmr_load}')
 
   def Txt2Img(
@@ -552,7 +587,7 @@ class API(db.APIProtocol):
     # make the call to the APIs
     logging.info(f'Generating image with SDNext API, options: {options}')
     with timer.Timer(emit_log=False) as tmr_generate:
-      data: tbase.JSONValue = self.Call(Endpoints.TXT2IMG, options)
+      data: tbase.JSONValue = self.Call(APICalls.TXT2IMG, options)
     tm_created: int = timer.Now()  # use exact time we got is back
     if not isinstance(data, dict) or 'info' not in data or 'parameters' not in data:
       raise Error(f'Invalid image metadata received from SDNext API: {data}')

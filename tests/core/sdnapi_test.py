@@ -112,8 +112,7 @@ def testAPIInit() -> None:
 
 def testAPIInitWithOptions() -> None:
   """API initializes with custom version and save options."""
-  api = sdnapi.API('http://host:8080', version=2, server_save_images=True)
-  assert api._version == 2
+  api = sdnapi.API('http://host:8080', server_save_images=True)
   assert api._server_save_images is True
 
 
@@ -139,15 +138,6 @@ def testCallTxt2ImgWithPayload() -> None:
   assert result == {'result': 'ok'}
   args = mock_call.call_args
   assert args[0][3] == {'prompt': 'hello'}
-
-
-def testCallV2Prefix() -> None:
-  """Call uses v2 prefix when version is 2."""
-  api = sdnapi.API('http://localhost:7860', version=2)
-  with mock.patch.object(sdnapi, '_Call', return_value={}) as mock_call:
-    api.Call(sdnapi.Endpoints.MODELS)
-  args = mock_call.call_args
-  assert args[0][2] == '/sdapi/v2/sd-models'
 
 
 def testGetModelsValid() -> None:
