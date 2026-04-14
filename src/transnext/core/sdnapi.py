@@ -202,20 +202,20 @@ class API(db.APIProtocol):
 
   @property
   def options(self) -> tbase.JSONDict:
-    """Get current SDNext API options.
+    """Get current SDNext API options. Costs an API call.
 
     Schema:
 
     {
-      'sd_model_checkpoint': 'SDXL_00_XLB_v10VAEFix',
-      'sd_checkpoint_hash': 'e6bb9ea85bbf7bf6478a7c6d18b71246f22e95d41bcdd80ed40aa212c33cfeff',
-      'samples_filename_pattern': '[prompt_hash]-[datetime]-[model_hash]-[image_hash]',
+      'sd_model_checkpoint': 'SDXL_00_XLB_v10VAEFix',                 ==> CONTEMPLATED
+      'sd_checkpoint_hash': 'e6bb9ea8....',                           ==> CONTEMPLATED
+      'samples_filename_pattern': '[prompt_hash]-[image_hash]',
       'show_progress_every_n_steps': 10,
       'live_preview_refresh_period': 5000,
       'samples_format': 'png',
       'grid_format': 'png',
       'save_images_add_number': False,
-      'no_half': True,
+      'no_half': True,                                                ==> CONTEMPLATED
       'diffusers_generator_device': 'CPU',
       'olive_vae_encoder_float32': True,
       'save_to_dirs': True,
@@ -228,17 +228,17 @@ class API(db.APIProtocol):
       'cfgzero_enabled': True,
       'cfgzero_steps': 2,
       'gradio_theme': 'Default',
-      'prompt_attention': 'a1111',
-      'clip_skip_enabled': True,
+      'prompt_attention': 'a1111',                                    ==> CONTEMPLATED
+      'clip_skip_enabled': True,                                      ==> CONTEMPLATED
       'show_progress_type': 'Approximate',
-      'lora_add_hashes_to_infotext': True,
+      'lora_add_hashes_to_infotext': True,                            ==> CONTEMPLATED
       'lora_fuse_native': False,
-      'lora_in_memory_limit': 2,
+      'lora_in_memory_limit': 2,                                      ==> CONTEMPLATED
       'schedulers_sigma': 'karras',
       'schedulers_timestep_spacing': 'linspace',
       'schedulers_beta_schedule': 'scaled',
       'schedulers_prediction_type': 'epsilon',
-      'clip_skip': 1,
+      'clip_skip': 1,                                                 ==> CONTEMPLATED
       'uni_pc_lower_order_final': True,
       'uni_pc_order': 2,
       'sdnq_dequantize_compile': False,
@@ -284,7 +284,7 @@ class API(db.APIProtocol):
 
   @options.setter
   def options(self, new_options: tbase.JSONDict) -> None:
-    """Set SDNext API options.
+    """Set SDNext API options. Costs an API call.
 
     Args:
       new_options: A dictionary containing the options to set.
@@ -643,14 +643,22 @@ class API(db.APIProtocol):
     """
     # set options; most importantly, set the model if needed
     base_options: tbase.JSONDict = {
+      # FIXED OPTIONS
       'clip_skip_enabled': True,
+      'no_half': True,
+      'lora_add_hashes_to_infotext': True,
+      'lora_in_memory_limit': 3,
+      # VARIABLE OPTIONS
+      'prompt_attention': meta['parser'],
+      'clip_skip': meta['clip_skip'] // 10,  # TODO: in future, when accepts float do regular div
     }
     if model['hash'] != meta['model_hash']:
       raise Error(f'Model hash mismatch: expected {meta["model_hash"]}, got {model["hash"]}')
-    if (current_model := str(self.options['sd_model_checkpoint'] or '')) != model['name']:
-      logging.info(f'Switching models for generation: {current_model!r} -> {model["name"]!r}')
+    api_options = self.options  # get current options from API
+    if str(api_options['sd_checkpoint_hash'] or '') != model['hash']:
+      logging.info(f'Switching models: {api_options["sd_model_checkpoint"]!r} -> {model["name"]!r}')
       with timer.Timer(emit_log=False) as tmr_load:
-        base_options['sd_model_checkpoint'] = model['name']
+        base_options['sd_checkpoint_hash'] = model['hash']
         self.options = base_options  # set the model, this will trigger the load in SDNext
         self.Call(APICalls.RELOAD_CHECKPOINT)  # needed if running in api-only to trigger new load
       logging.info(f'Model loaded in SDNext API in {tmr_load}')
