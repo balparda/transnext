@@ -378,6 +378,44 @@ def testParseMetadataMultilinePositive() -> None:
   assert result['negative'] == 'neg'
 
 
+def testParseMetadataMultilineNegative() -> None:
+  """Parse negative prompt spanning multiple lines before the params line."""
+  text = (
+    '(score_9), (score_8_up), score_7_up, source_photo,\nfoo bar\n'
+    'Negative prompt: [[[score_6]]], [[score_5]], [score_4], score_1,\n'
+    'baz\n'
+    'Steps: 10, Size: 1024x1536, Sampler: DPM++ SDE, Seed: 4039644363, '
+    'CFG scale: 7, CFG end: 0.8, Model: SDXL_17_P-IND_indecentRealismFor_v20, '
+    'Model hash: 335da0800c'
+  )
+  result: dict[str, str] = db._ParseImageMetadata(text)
+  assert result['positive'] == '(score_9), (score_8_up), score_7_up, source_photo,\nfoo bar'
+  assert result['negative'] == '[[[score_6]]], [[score_5]], [score_4], score_1,\nbaz'
+  assert result['steps'] == '10'
+  assert result['width'] == '1024'
+  assert result['height'] == '1536'
+  assert result['sampler'] == 'DPM++ SDE'
+  assert result['seed'] == '4039644363'
+  assert result['model hash'] == '335da0800c'
+
+
+def testParseMetadataEmptyNegative() -> None:
+  """Parse empty negative prompt — params line must not be swallowed into negative."""
+  text = (
+    'poor\n'
+    'Negative prompt: \n'
+    'Steps: 20, Size: 1000x600, Sampler: DPM++ SDE, Seed: 2989026014, CFG scale: 7, '
+    'Model: SDXL_16_P-TME_tamePonyThe_v25, Model hash: ae50f0a320'
+  )
+  result: dict[str, str] = db._ParseImageMetadata(text)
+  assert result['positive'] == 'poor'
+  assert result['negative'] == ''
+  assert result['steps'] == '20'
+  assert result['width'] == '1000'
+  assert result['height'] == '600'
+  assert result['model hash'] == 'ae50f0a320'
+
+
 def testParseMetadataEmptyString() -> None:
   """Parse empty metadata string returns empty positive."""
   result: dict[str, str] = db._ParseImageMetadata('')

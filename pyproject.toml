@@ -112,6 +112,7 @@ typeguard = "^4.5"
 # project-specific dev-only
 
 types-requests = "^2.33"  # sync with requests import
+types-tqdm = "^4.67"
 
 [tool.poetry.requires-plugins]
 poetry-plugin-export = "^1.10"

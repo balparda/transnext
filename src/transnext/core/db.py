@@ -11,8 +11,10 @@ import logging
 import pathlib
 import re
 import threading
+from collections import abc
 from typing import Protocol, Self, TypedDict, cast, runtime_checkable
 
+import tqdm
 from PIL import Image
 from transai.core import ai
 from transcrypto.core import aes, hashes, key
@@ -80,6 +82,9 @@ _PIL_FORMAT_MAP: dict[str, ImageFormat] = {
   'PNG': ImageFormat.PNG,
   'GIF': ImageFormat.GIF,
 }
+
+_EXTENSIONS_TO_PARSE_LOWER: set[str] = {'.png'}  # , '.jpg', '.jpeg', '.gif'}
+# TODO: consider all
 
 
 class DBImageType(TypedDict):
@@ -297,7 +302,7 @@ class AIDatabase:
 
     """
     if self._read_only:
-      logging.warning('AIDatabase in read-only mode: will *NOT* save! (would have saved here)')
+      logging.warning('AIDatabase in read-only mode: will *NOT* save! (would have saved now)')
       return
     with _DB_DISK_LOCK:  # ensure thread-safe save operations
       # check on previous save
@@ -467,28 +472,43 @@ class AIDatabase:
         self._db['known_image_sources'].append(str_add_dir)
         logging.info(f'Added new image source dir: {add_dir}')
     # scan all known source dirs for image files
+    is_target: abc.Callable[[pathlib.Path], bool] = lambda p: (
+      p.suffix.lower() in _EXTENSIONS_TO_PARSE_LOWER and p.is_file()
+    )
+    files_todo: list[pathlib.Path] = []
     valid_sources: int = 0
     invalid_sources: int = 0
-    valid_image: int = 0
-    invalid_image: int = 0
-    new_image: int = 0
-    meta_error: int = 0
-    total_paths: int = 0
-    existing_paths: int = 0
-    for dir_path in sorted(pathlib.Path(d) for d in self._db['known_image_sources']):
+    for dir_path in sorted(pathlib.Path(d) for d in self._db['known_image_sources']):  # determinism
       # check the source dir exists and is a directory
       if not dir_path.exists() or not dir_path.is_dir():
         logging.error(f'Known image source dir does not exist, skipping: {dir_path}')
         invalid_sources += 1
         continue
       # we have a valid source dir, scan for images
+      filtered_dir: list[pathlib.Path] = [p for p in sorted(dir_path.rglob('*')) if is_target(p)]
+      files_todo.extend(filtered_dir)  # add the sorted (for determinism) list of files to the todo
       valid_sources += 1
-      logging.info(f'Syncing images from source dir: {dir_path}')
-      for img_path in sorted(dir_path.rglob('*')):  # sorted for determinism
-        if img_path.suffix.lower() not in {'.png', '.jpg', '.jpeg', '.gif'}:
-          continue  # not an image file we care about
-        if not img_path.is_file():
-          continue  # skip directories or non-files
+      logging.info(f'Valid source dir with {len(filtered_dir)} images added: {dir_path}')
+    logging.info(
+      f'Found {len(files_todo)} total image files to sync from {valid_sources} valid dir sources '
+      f'(skipped {invalid_sources} invalid sources)'
+    )
+    # now go over them with a progress bar, confident they are valid, and update the DB accordingly
+    valid_image: int = 0
+    invalid_image: int = 0
+    new_image: int = 0
+    meta_error: int = 0
+    Image.MAX_IMAGE_PIXELS = 500_000_000  # set a high limit to avoid DecompressionBombError
+    with timer.Timer(emit_log=False) as tmr_add:
+      for img_path in tqdm.tqdm(
+        iterable=files_todo,
+        total=len(files_todo),  # strictly not necessary, but helps if need to enumerate() for debug
+        desc='Read',
+        unit='img',
+        dynamic_ncols=True,
+        smoothing=0.001,
+        colour='green',
+      ):
         # try to read the file and hash it
         try:
           img_bytes: bytes = img_path.read_bytes()
@@ -518,43 +538,60 @@ class AIDatabase:
           try:
             new_entry: DBImageType = _ImportImageFile(
               img_path, img_bytes, img_hash, set(self._db['models'])
-            )
+            )  # TODO: try..catch in _ImportImageFile, create a ParseError with partial struct
             self._db['images'][img_hash] = new_entry
             new_image += 1
             logging.info(f'Imported new image {img_hash[:12]}: {img_path}')
           except (ValueError, tbase.Error) as err:
-            meta_error += 1
+            meta_error += 1  # TODO: add error entry with a field indicating the error
             logging.error(f'Could not import image, skipping {img_path}: {err}')
-    # check for deleted images — paths that no longer exist on disk
-    for img_hash, db_entry in self._db['images'].items():
-      # gather all known paths for this image (main + alt), check which ones still exist
-      all_paths: set[str] = set(db_entry['alt_path'])
-      if db_entry['path']:
-        all_paths.add(db_entry['path'])
-      total_paths += len(all_paths)
-      filtered_paths: set[str] = {p for p in all_paths if pathlib.Path(p).exists()}
-      existing_paths += len(filtered_paths)
-      # if none of the paths exist, clear the path info but keep the DB entry
-      if not filtered_paths:
-        logging.warning(f'All paths for image {img_hash[:12]} are gone, clearing: {all_paths}')
-        db_entry['path'] = None
-        db_entry['alt_path'] = []
-        continue
-      # we have at least one existing path, if the main path is gone, promote an alt path to main
-      if not db_entry['path'] or (db_entry['path'] and not pathlib.Path(db_entry['path']).exists()):
-        db_entry['path'] = filtered_paths.pop()  # promote one of the existing paths to main
-        db_entry['alt_path'] = sorted(filtered_paths)  # the rest become alt paths
-      else:
-        # we should have an OK db_entry['path'] that exists, we remove it from the rest
-        filtered_paths.discard(db_entry['path'])
-        db_entry['alt_path'] = sorted(filtered_paths)
     # done, log
     logging.info(
-      f'Sync done: {len(self._db["images"])} unique hashes in DB. Scanned {valid_sources} sources '
-      f'(found {invalid_sources} invalid sources) containing {valid_image} valid images and '
+      f'Sync done in {tmr_add}: {len(self._db["images"])} unique hashes in DB. '
+      f'Scanned {valid_sources} dir sources containing {valid_image} valid images and '
       f'{invalid_image} invalid images; of these, {new_image} were new and added to the DB, '
-      f'{meta_error} had metadata errors and were ignored; in the DB we had {total_paths} total '
-      f'paths, {existing_paths} still existing, so we dropped {total_paths - existing_paths} paths'
+      f'{meta_error} had metadata errors and were ignored. Now checking for deleted images...'
+    )
+    # check for deleted images — paths that no longer exist on disk
+    total_paths: int = 0
+    existing_paths: int = 0
+    with timer.Timer(emit_log=False) as tmr_del:
+      for img_hash, db_entry in tqdm.tqdm(
+        iterable=self._db['images'].items(),
+        desc='Check',
+        unit='img',
+        dynamic_ncols=True,
+        smoothing=0.001,
+        colour='red',
+      ):
+        # gather all known paths for this image (main + alt), check which ones still exist
+        all_paths: set[str] = set(db_entry['alt_path'])
+        if db_entry['path']:
+          all_paths.add(db_entry['path'])
+        total_paths += len(all_paths)
+        filtered_paths: set[str] = {p for p in all_paths if pathlib.Path(p).exists()}
+        existing_paths += len(filtered_paths)
+        # if none of the paths exist, clear the path info but keep the DB entry
+        if not filtered_paths:
+          logging.warning(f'All paths for image {img_hash[:12]} are gone, clearing: {all_paths}')
+          db_entry['path'] = None
+          db_entry['alt_path'] = []
+          continue
+        # we have at least one existing path, if the main path is gone, promote an alt path to main
+        if not db_entry['path'] or (
+          db_entry['path'] and not pathlib.Path(db_entry['path']).exists()
+        ):
+          db_entry['path'] = filtered_paths.pop()  # promote one of the existing paths to main
+          db_entry['alt_path'] = sorted(filtered_paths)  # the rest become alt paths
+        else:
+          # we should have an OK db_entry['path'] that exists, we remove it from the rest
+          filtered_paths.discard(db_entry['path'])
+          db_entry['alt_path'] = sorted(filtered_paths)
+    # done, log
+    logging.info(
+      f'Check done in {tmr_del}: {len(self._db["images"])} unique hashes in DB. '
+      f'In the DB we had {total_paths} total paths, {existing_paths} still existing, '
+      f'so we dropped {total_paths - existing_paths} paths.'
     )
 
 
@@ -564,7 +601,7 @@ _PARAMS_LINE_RE: re.Pattern[str] = re.compile(
 _PARAM_SPLIT_RE: re.Pattern[str] = re.compile(r',\s*(?=[A-Za-z][A-Za-z0-9 _]*:)', re.IGNORECASE)
 
 
-def _ParseImageMetadata(info_text: str) -> dict[str, str]:
+def _ParseImageMetadata(info_text: str) -> dict[str, str]:  # noqa: C901, PLR0912, PLR0914
   """Parse SDNext/A1111 image metadata string into a key-value dict.
 
   The metadata string has the structure::
@@ -603,13 +640,20 @@ def _ParseImageMetadata(info_text: str) -> dict[str, str]:
   result['positive'] = '\n'.join(positive_lines).strip()
   # split remainder into negative prompt and params
   if remainder.startswith('Negative prompt:'):
-    # find where the params line begins (first line-break or comma-sep key pattern)
-    neg_and_params: str = remainder[len('Negative prompt:') :].strip()
-    # heuristic: params start after the last newline before known keys
-    # split on newlines first to get the negative, then params
-    neg_parts: list[str] = neg_and_params.split('\n', 1)
-    result['negative'] = neg_parts[0].strip()
-    remainder = neg_parts[1].strip() if len(neg_parts) > 1 else ''
+    # do NOT strip before splitting — we need '\n' separators preserved (e.g. empty negative)
+    neg_and_params: str = remainder[len('Negative prompt:') :]
+    # the negative prompt may span multiple lines; consume lines until we hit a params line,
+    # mirroring the same logic used for the positive prompt above
+    neg_lines: list[str] = neg_and_params.split('\n')
+    negative_parts: list[str] = []
+    params_start: int = len(neg_lines)  # default: all lines belong to negative
+    for j, neg_line in enumerate(neg_lines):
+      if _PARAMS_LINE_RE.match(neg_line):
+        params_start = j
+        break
+      negative_parts.append(neg_line)
+    result['negative'] = '\n'.join(negative_parts).strip()
+    remainder = ' '.join(neg_lines[params_start:]) if params_start < len(neg_lines) else ''
   # parse comma-separated key: value pairs from remainder
   # we can't just split on ',' because values may contain commas (model names, etc.)
   # instead we split on ', <Key>:' boundaries using regex
@@ -656,14 +700,14 @@ def _FindModelHash(partial_hash: str, models: set[str]) -> str:
     return partial_hash  # exact match
   matches: list[str] = [h for h in models if h.lower().startswith(partial_hash)]
   if len(matches) == 1:
-    logging.info(f'Matched partial model hash {partial_hash!r} -> {matches[0]}')
+    logging.debug(f'Matched partial model hash {partial_hash!r} -> {matches[0]}')
     return matches[0]  # found!
   if len(matches) > 1:
     raise Error(f'Ambiguous partial model hash {partial_hash!r} matches {len(matches)} models')
   raise Error(f'Model hash {partial_hash!r} not found in DB')
 
 
-def _ImportImageFile(
+def _ImportImageFile(  # noqa: C901, PLR0912
   img_path: pathlib.Path, img_bytes: bytes, img_hash: str, models: set[str]
 ) -> DBImageType:
   """Parse an image file from disk and create a DBImageType entry.
@@ -689,7 +733,7 @@ def _ImportImageFile(
     # make sure format is known
     fmt: ImageFormat | None = _PIL_FORMAT_MAP.get((img.format or '').upper())
     if not fmt:
-      raise Error(f'Unsupported image format {img.format!r}: {img_path}')
+      raise Error(f'Unsupported image format {img.format!r}')
     # get the internal data we need (size and hash)
     width: int = img.width
     height: int = img.height
@@ -701,6 +745,9 @@ def _ImportImageFile(
       info_text = pil_info['parameters']
     elif 'UserComment' in pil_info and isinstance(pil_info['UserComment'], str):
       info_text = pil_info['UserComment']
+  # we have the metadata text, first check it is an AI image
+  if not info_text.strip():
+    raise Error('No metadata text found in image info; not an AI-generated image we can parse')
   # parse metadata
   meta_raw: dict[str, str] = _ParseImageMetadata(info_text) if info_text else {}
   # resolve model hash
@@ -724,20 +771,30 @@ def _ImportImageFile(
     'clip_skip': round(float(meta_raw.get('clip skip', base.SD_EMPTY_CLIP_SKIP)) * 10),  # convert!
   }
   # do checks; be strict
-  if not 1 < ai_meta['seed'] <= ai.AI_MAX_SEED:
-    raise Error(f'Invalid seed value in image metadata: {ai_meta["seed"]} (from {img_path})')
+  if not 0 < ai_meta['seed'] <= 2**64 - 1:  # allow 1, and up to ~2**64
+    # have to be more liberal here because there are some edge cases in the wild
+    raise Error(f'Invalid seed value in image metadata: {ai_meta}')
+  if ai_meta['seed'] > ai.AI_MAX_SEED:
+    logging.debug(f'High seed value (>{ai.AI_MAX_SEED}) in image metadata: {ai_meta}')
   meta_width = int(meta_raw.get('width', 'no width'))
   meta_height = int(meta_raw.get('height', 'no height'))
   if meta_width != width or meta_height != height:
-    raise Error(f'Dim mismatch: {meta_width}x{meta_height} vs {width}x{height} (from {img_path})')
+    meta_px: int = meta_width * meta_height
+    actual_px: int = width * height
+    if meta_px and actual_px and meta_px < actual_px and actual_px / meta_px > 1.5:  # noqa: PLR2004
+      # the hallmark of a img->img upscaler
+      logging.info(f'Image probably upscaled: {meta_width}x{meta_height} -> {width}x{height}')
+    else:
+      extra_msg: str = '; probably an unfinished image' if meta_px > actual_px else ''
+      raise Error(f'Dim error: {meta_width} x {meta_height} / {width} x {height}{extra_msg}')
   if not 1 <= ai_meta['steps'] <= base.SD_MAX_ITERATIONS:
-    raise Error(f'Invalid iterations metadata: {ai_meta["steps"]} (from {img_path})')
+    raise Error(f'Invalid iterations metadata: {ai_meta}')
   if not 10 <= ai_meta['cfg_scale'] <= base.SD_MAX_CFG_SCALE:  # noqa: PLR2004
-    raise Error(f'Invalid CFG Scale metadata: {ai_meta["cfg_scale"]} (from {img_path})')
+    raise Error(f'Invalid CFG Scale metadata: {ai_meta}')
   if not 0 <= ai_meta['cfg_end'] <= 10:  # noqa: PLR2004
-    raise Error(f'Invalid CFG End metadata: {ai_meta["cfg_end"]} (from {img_path})')
+    raise Error(f'Invalid CFG End metadata: {ai_meta}')
   if not 10 <= ai_meta['clip_skip'] <= base.SD_MAX_CLIP_SKIP:  # noqa: PLR2004
-    raise Error(f'Invalid Clip Skip metadata: {ai_meta["clip_skip"]} (from {img_path})')
+    raise Error(f'Invalid Clip Skip metadata: {ai_meta}')
   # join everything together into the DBImageType
   return DBImageType(
     hash=img_hash,

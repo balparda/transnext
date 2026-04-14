@@ -35,14 +35,99 @@ MakeURL: abc.Callable[[str, int], str] = lambda host, port: f'{host}:{port}'
 
 
 class Sampler(enum.Enum):
-  """Image generation sampler enum."""
+  """Image generation sampler enum.
+
+  List of all is in:
+  <https://github.com/vladmandic/sdnext/blob/master/modules/sd_samplers_diffusers.py>
+  """
+
+  UniPC = 'UniPC'
+  DDIM = 'DDIM'
 
   Euler = 'Euler'
-  EulerA = 'Euler a'
-  Unity = 'UniPC'
-  DPM_SDE = 'DPM SDE'
+  Euler_A = 'Euler a'
+  Euler_SGM = 'Euler SGM'
+  Euler_EDM = 'Euler EDM'
+  Euler_FlowMatch = 'Euler FlowMatch'
+
+  DPM_P = 'DPM++'
+  DPM_P_2M = 'DPM++ 2M'
+  DPM_P_3M = 'DPM++ 3M'
+  DPM_P_1S = 'DPM++ 1S'
   DPM_P_SDE = 'DPM++ SDE'
   DPM_P_2M_SDE = 'DPM++ 2M SDE'
+  DPM_P_2M_EDM = 'DPM++ 2M EDM'
+  DPM_P_Cosine = 'DPM++ Cosine'
+  DPM_SDE = 'DPM SDE'
+
+  DPM_P_Inverse = 'DPM++ Inverse'
+  DPM_P_2M_Inverse = 'DPM++ 2M Inverse'
+  DPM_P_3M_Inverse = 'DPM++ 3M Inverse'
+
+  UniPC_FlowMatch = 'UniPC FlowMatch'
+  DPM2_FlowMatch = 'DPM2 FlowMatch'
+  DPM2a_FlowMatch = 'DPM2a FlowMatch'
+  DPM2_P_2M_FlowMatch = 'DPM2++ 2M FlowMatch'
+  DPM2_P_2S_FlowMatch = 'DPM2++ 2S FlowMatch'
+  DPM2_P_SDE_FlowMatch = 'DPM2++ SDE FlowMatch'
+  DPM2_P_2M_SDE_FlowMatch = 'DPM2++ 2M SDE FlowMatch'
+  DPM2_P_3M_SDE_FlowMatch = 'DPM2++ 3M SDE FlowMatch'
+
+  Heun = 'Heun'
+  Heun_FlowMatch = 'Heun FlowMatch'
+  LCM = 'LCM'
+  LCM_FlowMatch = 'LCM FlowMatch'
+
+  DEIS = 'DEIS'
+  SA_Solver = 'SA Solver'
+  DC_Solver = 'DC Solver'
+  VDM_Solver = 'VDM Solver'
+  TCD = 'TCD'
+  TDD = 'TDD'
+  Flash_FlowMatch = 'Flash FlowMatch'
+  PeRFlow = 'PeRFlow'
+  UFOGen = 'UFOGen'
+  BDIA_DDIM = 'BDIA DDIM'
+
+  PNDM = 'PNDM'
+  IPNDM = 'IPNDM'
+  DDPM = 'DDPM'
+  LMSD = 'LMSD'
+  KDPM2 = 'KDPM2'
+  KDPM2_a = 'KDPM2 a'
+  CMSI = 'CMSI'
+  CogX_DDIM = 'CogX DDIM'
+  DDIM_Parallel = 'DDIM Parallel'
+  DDPM_Parallel = 'DDPM Parallel'
+
+  # ATTENTION! The samplers below are not in the official SDNext codebase,
+  # they are legacy A1111 samplers; we must also list them in the SamplerA1111 enum!
+  # The reason is that they are not supported in SDNext, so they can be in the DB, but
+  # they CANNOT be used for generation, unless they have a converter to a supported sampler
+  # in SAMPLER_EQUIVALENCE_A1111_TO_SDNEXT
+  DPM_ADAPTIVE = 'DPM adaptive'
+  DPM_FAST = 'DPM fast'
+  DPM_P_2S_A = 'DPM++ 2S a'
+  DPM_P_2S_A_KARRAS = 'DPM++ 2S a Karras'
+  DPM_P_3M_SDE = 'DPM++ 3M SDE'
+  DPM_P_3M_SDE_KARRAS = 'DPM++ 3M SDE Karras'
+
+
+class SamplerA1111(enum.Enum):
+  """Image generation sampler from A1111 enum."""
+
+  DPM_ADAPTIVE = 'DPM adaptive'
+  DPM_FAST = 'DPM fast'
+  DPM_P_2S_A = 'DPM++ 2S a'
+  DPM_P_2S_A_KARRAS = 'DPM++ 2S a Karras'
+  DPM_P_3M_SDE = 'DPM++ 3M SDE'
+  DPM_P_3M_SDE_KARRAS = 'DPM++ 3M SDE Karras'
+  # TODO: implement this in txt2img ingestion
+
+
+SAMPLER_EQUIVALENCE_A1111_TO_SDNEXT: dict[SamplerA1111, Sampler] = {
+  # none for now
+}
 
 
 class QueryParser(enum.Enum):
@@ -202,7 +287,7 @@ SD_QUERY_PARSER_OPTION: typer.models.OptionInfo = typer.Option(
   help=f'Query parser to use for the generation; default: {SD_DEFAULT_QUERY_PARSER.value!r}',
 )
 
-SD_MODEL_KEY_OPTION: typer.models.OptionInfo = typer.Option(  # TODO: fix
+SD_MODEL_KEY_OPTION: typer.models.OptionInfo = typer.Option(
   'XLB_v10',
   '-m',
   '--model',
