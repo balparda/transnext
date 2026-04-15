@@ -150,10 +150,10 @@ class AIMetaType(TypedDict):
   sampler: str  # base.Sampler string used in AI processing
   parser: str  # base.QueryParser string used for the prompts
   clip_skip: int  # CLIP skip used in AI processing (times 10 for int storage)
-  # TODO: 'sampler beta schedule': 'scaled', / 'schedulers_beta_schedule'
-  # TODO: 'sampler sigma': 'karras', / 'schedulers_sigma'
-  # TODO: 'sampler spacing': 'linspace', / 'schedulers_timestep_spacing'
-  # TODO: 'sampler type': 'epsilon', / 'schedulers_prediction_type'
+  sch_sigma: str | None  # base.SchedulerSigma string used; None is 'default'
+  sch_spacing: str | None  # base.SchedulerSpacing string used; None is 'default'
+  sch_beta: str | None  # base.SchedulerBeta string used; None is 'default'
+  sch_type: str | None  # base.SchedulerPredictionType string used; None is 'default'
 
 
 def AIMetaTypeFactory(overrides: dict[str, object] | None = None) -> AIMetaType:
@@ -183,6 +183,10 @@ def AIMetaTypeFactory(overrides: dict[str, object] | None = None) -> AIMetaType:
     cfg_scale=base.SD_DEFAULT_CFG_SCALE,
     cfg_end=base.SD_DEFAULT_CFG_END,
     clip_skip=base.SD_DEFAULT_CLIP_SKIP,
+    sch_sigma=None,
+    sch_spacing=None,
+    sch_beta=None,
+    sch_type=None,
   )
   obj.update(overrides or {})  # type: ignore[typeddict-item]
   # make sure seed is actually set now
@@ -816,6 +820,7 @@ def _ImportImageFile(  # noqa: C901, PLR0912, PLR0914, PLR0915
       img_origin, app_version = ImageOrigin.A1111, meta_raw['version']
       empty_query_parser = base.QueryParser.A1111.value
   # build metadata for DB entry, using defaults if parsing fails or fields are missing
+  # create helper methods that save the errors to `parse_errors`
 
   def _IntKey(key: str, default: int, *, empty: str | None = None) -> int:
     try:
@@ -831,17 +836,39 @@ def _ImportImageFile(  # noqa: C901, PLR0912, PLR0914, PLR0915
       parse_errors.append(f'{key}: {err} -> {default}')
       return default
 
-  def _EnumKey[T: enum.Enum](tp: type[T], key: str, default: T, *, empty: str | None = None) -> T:
+  def _EnumKey[T: enum.Enum](
+    tp: type[T], key: str, default: T | None, *, empty: str | None = None
+  ) -> T | None:
     try:
       return tp(meta_raw.get(key, empty or ('no ' + key)))
     except ValueError as err:
-      parse_errors.append(f'{key}: {err} -> {default.value}')
+      parse_errors.append(f'{key}: {err} -> {default.value if default else "None"}')
       return default
 
+  # parse a bunch of properties
   v_seed: int = _IntKey('variation seed', -1, empty=base.SD_EMPTY_V_SEED)
   v_strength: int = _FloatKey(
     'variation strength', 0, empty=base.SD_EMPTY_V_STRENGTH, conversion=100
   )
+  sampler: base.Sampler | None = _EnumKey(base.Sampler, 'sampler', base.Sampler.Euler_A)
+  parser: base.QueryParser | None = _EnumKey(
+    base.QueryParser, 'parser', base.SD_DEFAULT_QUERY_PARSER, empty=empty_query_parser
+  )
+  assert sampler, '`sampler` has default, this should never happen'  # noqa: S101
+  assert parser, '`parser` has default, this should never happen'  # noqa: S101
+  sch_sigma: base.SchedulerSigma | None = _EnumKey(
+    base.SchedulerSigma, 'sampler sigma', None, empty='default'
+  )
+  sch_spacing: base.SchedulerSpacing | None = _EnumKey(
+    base.SchedulerSpacing, 'sampler spacing', None, empty='default'
+  )
+  sch_beta: base.SchedulerBeta | None = _EnumKey(
+    base.SchedulerBeta, 'sampler beta schedule', None, empty='default'
+  )
+  sch_type: base.SchedulerPredictionType | None = _EnumKey(
+    base.SchedulerPredictionType, 'sampler type', None, empty='default'
+  )
+  # build the AIMetaType with the parsed and validated properties
   ai_meta: AIMetaType = AIMetaType(
     # MANDATORY FIELDS (must be present and valid, otherwise we consider this image as malformed)
     model_hash=model_hash,
@@ -852,16 +879,18 @@ def _ImportImageFile(  # noqa: C901, PLR0912, PLR0914, PLR0915
     height=height,
     steps=_IntKey('steps', 0),
     cfg_scale=_FloatKey('cfg scale', 0),
-    sampler=_EnumKey(base.Sampler, 'sampler', base.Sampler.Euler_A).value,
+    sampler=sampler.value,
     # OPTIONAL FIELDS (if missing will have defaults, but if present must be valid)
     negative=meta_raw.get('negative') or None,
     cfg_end=_FloatKey('cfg end', 0, empty=base.SD_EMPTY_CFG_END),
-    parser=_EnumKey(
-      base.QueryParser, 'parser', base.SD_DEFAULT_QUERY_PARSER, empty=empty_query_parser
-    ).value,
+    parser=parser.value,
     clip_skip=_FloatKey('clip skip', 0, empty=base.SD_EMPTY_CLIP_SKIP),
+    sch_sigma=sch_sigma.value if sch_sigma else None,
+    sch_spacing=sch_spacing.value if sch_spacing else None,
+    sch_beta=sch_beta.value if sch_beta else None,
+    sch_type=sch_type.value if sch_type else None,
   )
-  # do checks; be strict
+  # do more checks; be strict
   # SEED
   if not 0 < ai_meta['seed'] <= base.SD_MAX_SEED:
     parse_errors.append('`seed` out of bounds')

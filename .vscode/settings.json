@@ -143,6 +143,7 @@
     "filelock",
     "firstphase",
     "flakefinder",
+    "flowmatch",
     "footguns",
     "freeu",
     "furo",

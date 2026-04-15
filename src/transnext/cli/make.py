@@ -38,6 +38,10 @@ def Make(  # documentation is help/epilog/args # noqa: D103
   clip_skip: int = base.SD_CLIP_SKIP_OPTION,  # type: ignore[assignment]  # TODO: float in future
   cfg_scale: float = base.SD_CFG_SCALE_OPTION,  # type: ignore[assignment]
   cfg_end: float = base.SD_CFG_END_OPTION,  # type: ignore[assignment]
+  sch_sigma: base.SchedulerSigma | None = base.SD_SCHEDULER_SIGMA_OPTION,  # type: ignore[assignment]
+  sch_spacing: base.SchedulerSpacing | None = base.SD_SCHEDULER_SPACING_OPTION,  # type: ignore[assignment]
+  sch_beta: base.SchedulerBeta | None = base.SD_SCHEDULER_BETA_OPTION,  # type: ignore[assignment]
+  sch_type: base.SchedulerPredictionType | None = base.SD_SCHEDULER_PREDICTION_TYPE_OPTION,  # type: ignore[assignment]
   backup: bool = base.SD_API_SERVER_SAVE,  # type: ignore[assignment]
 ) -> None:
   # check sanity
@@ -62,7 +66,7 @@ def Make(  # documentation is help/epilog/args # noqa: D103
           'negative': negative_prompt,
           'steps': steps,
           'seed': seed,
-          'v_seed': (vseed, round(vstrength * 100)) if vseed or vstrength > 0.0 else None,
+          'v_seed': (vseed, round(vstrength * 100)) if vseed and vstrength > 0.0 else None,
           'width': width,
           'height': height,
           'sampler': sampler.value,
@@ -71,6 +75,10 @@ def Make(  # documentation is help/epilog/args # noqa: D103
           'clip_skip': round(clip_skip * 10),  # store as int (times 10)
           'cfg_scale': round(cfg_scale * 10),  # store as int (times 10)
           'cfg_end': round(cfg_end * 10),  # store as int (times 10)
+          'sch_sigma': sch_sigma.value if sch_sigma else None,
+          'sch_spacing': sch_spacing.value if sch_spacing else None,
+          'sch_beta': sch_beta.value if sch_beta else None,
+          'sch_type': sch_type.value if sch_type else None,
         }
       ),
       api,

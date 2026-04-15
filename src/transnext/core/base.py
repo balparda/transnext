@@ -125,7 +125,7 @@ class SamplerA1111(enum.Enum):
 
 SAMPLER_EQUIVALENCE_A1111_TO_SDNEXT: dict[SamplerA1111, Sampler] = {
   # none for now
-}
+}  # TODO: implement converters
 
 
 class QueryParser(enum.Enum):
@@ -136,6 +136,43 @@ class QueryParser(enum.Enum):
   XHinker = 'xhinker'
   A1111 = 'a1111'
   Fixed = 'fixed'
+
+
+class SchedulerSigma(enum.Enum):
+  """Sampler sigma schedule enum (`schedulers_sigma`)."""
+
+  karras = 'karras'
+  betas = 'betas'
+  exponential = 'exponential'
+  lambdas = 'lambdas'
+  flowmatch = 'flowmatch'
+
+
+class SchedulerSpacing(enum.Enum):
+  """Sampler spacing enum (`schedulers_timestep_spacing`)."""
+
+  linspace = 'linspace'
+  leading = 'leading'
+  trailing = 'trailing'
+
+
+class SchedulerBeta(enum.Enum):
+  """Sampler beta schedule enum (`schedulers_beta_schedule`)."""
+
+  linear = 'linear'
+  scaled = 'scaled'
+  cosine = 'cosine'
+  sigmoid = 'sigmoid'
+  laplace = 'laplace'
+
+
+class SchedulerPredictionType(enum.Enum):
+  """Sampler type enum (`schedulers_prediction_type`)."""
+
+  epsilon = 'epsilon'
+  sample = 'sample'
+  v_prediction = 'v_prediction'
+  flow_prediction = 'flow_prediction'
 
 
 # defaults: what we think are good defaults for most cases
@@ -348,6 +385,27 @@ SD_CFG_END_OPTION: typer.models.OptionInfo = typer.Option(
   help=(
     f'CFG scale application end (guidance end); 0.0 ≤ c ≤ 1.0; default: {SD_DEFAULT_CFG_END / 10}'
   ),
+)
+
+SD_SCHEDULER_SIGMA_OPTION: typer.models.OptionInfo = typer.Option(
+  None,
+  '--sigma',
+  help='Sampler sigma schedule to use for the generation; default: None (SDNext default)',
+)
+SD_SCHEDULER_SPACING_OPTION: typer.models.OptionInfo = typer.Option(
+  None,
+  '--spacing',
+  help='Sampler spacing schedule to use for the generation; default: None (SDNext default)',
+)
+SD_SCHEDULER_BETA_OPTION: typer.models.OptionInfo = typer.Option(
+  None,
+  '--beta',
+  help='Sampler beta schedule to use for the generation; default: None (SDNext default)',
+)
+SD_SCHEDULER_PREDICTION_TYPE_OPTION: typer.models.OptionInfo = typer.Option(
+  None,
+  '--prediction',
+  help='Sampler prediction type to use for the generation; default: None (SDNext default)',
 )
 
 

@@ -207,7 +207,7 @@ class API(db.APIProtocol):
     Schema:
 
     {
-      'sd_model_checkpoint': 'SDXL_00_XLB_v10VAEFix',                 ==> CONTEMPLATED
+      'sd_model_checkpoint': 'SDXL_00_XLB_v10VAEFix',                 ==> CONTEMPLATED / INDIRECT
       'sd_checkpoint_hash': 'e6bb9ea8....',                           ==> CONTEMPLATED
       'samples_filename_pattern': '[prompt_hash]-[image_hash]',
       'show_progress_every_n_steps': 10,
@@ -215,7 +215,7 @@ class API(db.APIProtocol):
       'samples_format': 'png',
       'grid_format': 'png',
       'save_images_add_number': False,
-      'no_half': True,                                                ==> CONTEMPLATED
+      'no_half': True,                                                ==> CONTEMPLATED / FIXED
       'diffusers_generator_device': 'CPU',
       'olive_vae_encoder_float32': True,
       'save_to_dirs': True,
@@ -229,15 +229,15 @@ class API(db.APIProtocol):
       'cfgzero_steps': 2,
       'gradio_theme': 'Default',
       'prompt_attention': 'a1111',                                    ==> CONTEMPLATED
-      'clip_skip_enabled': True,                                      ==> CONTEMPLATED
+      'clip_skip_enabled': True,                                      ==> CONTEMPLATED / FIXED
       'show_progress_type': 'Approximate',
-      'lora_add_hashes_to_infotext': True,                            ==> CONTEMPLATED
+      'lora_add_hashes_to_infotext': True,                            ==> CONTEMPLATED / FIXED
       'lora_fuse_native': False,
-      'lora_in_memory_limit': 2,                                      ==> CONTEMPLATED
-      'schedulers_sigma': 'karras',
-      'schedulers_timestep_spacing': 'linspace',
-      'schedulers_beta_schedule': 'scaled',
-      'schedulers_prediction_type': 'epsilon',
+      'lora_in_memory_limit': 2,                                      ==> CONTEMPLATED / FIXED
+      'schedulers_sigma': 'karras',                                   ==> CONTEMPLATED
+      'schedulers_timestep_spacing': 'linspace',                      ==> CONTEMPLATED
+      'schedulers_beta_schedule': 'scaled',                           ==> CONTEMPLATED
+      'schedulers_prediction_type': 'epsilon',                        ==> CONTEMPLATED
       'clip_skip': 1,                                                 ==> CONTEMPLATED
       'uni_pc_lower_order_final': True,
       'uni_pc_order': 2,
@@ -327,7 +327,7 @@ class API(db.APIProtocol):
     # done, return
     return parsed
 
-  def Txt2Img(
+  def Txt2Img(  # noqa: C901
     self, model: db.AIModelType, meta: db.AIMetaType, *, dir_root: pathlib.Path | None = None
   ) -> tuple[db.DBImageType, bytes]:
     """Generate image from text prompt using SDNext API.
@@ -345,7 +345,7 @@ class API(db.APIProtocol):
       "subseed_strength": 0,                               ==> CONTEMPLATED
       "seed_resize_from_h": -1,
       "seed_resize_from_w": -1,
-      "batch_size": 1,
+      "batch_size": 1,                              ==> CONTEMPLATED / FIXED
       "n_iter": 1,                                  ==> CONTEMPLATED / FIXED
       "steps": 20,                                  ==> CONTEMPLATED
       "clip_skip": 1,                               ==> CONTEMPLATED
@@ -356,21 +356,21 @@ class API(db.APIProtocol):
       "hr_sampler_name": "Same as primary",
       "eta": 0,
       "guidance_name": "Default",
-      "guidance_scale": 6,
-      "guidance_rescale": 0,
-      "guidance_start": 0,
-      "guidance_stop": 1,
+      "guidance_scale": 6,                          ==> IGNORED BY txt2img
+      "guidance_rescale": 0,                        ==> IGNORED BY txt2img
+      "guidance_start": 0,                          ==> IGNORED BY txt2img
+      "guidance_stop": 1,                           ==> IGNORED BY txt2img
       "cfg_scale": 6,                               ==> CONTEMPLATED
       "cfg_end": 1,                                 ==> CONTEMPLATED
-      "diffusers_guidance_rescale": 0,
+      "diffusers_guidance_rescale": 0,  # TODO
       "pag_scale": 0,
       "pag_adaptive": 0.5,
       "styles": [
         "string"
       ],
-      "tiling": false,
-      "vae_type": "Full",
-      "hidiffusion": false,
+      "tiling": false,                              ==> CONTEMPLATED / FIXED
+      "vae_type": "Full",                           ==> CONTEMPLATED / FIXED
+      "hidiffusion": false,                         ==> CONTEMPLATED / FIXED
       "do_not_reload_embeddings": false,
       "detailer_enabled": false,
       "detailer_prompt": "",
@@ -523,10 +523,10 @@ class API(db.APIProtocol):
       "do_not_save_grid": false,
       "xyz": false,
       "script_args": [],
-      "schedulers_prediction_type": "string",
-      "schedulers_beta_schedule": "string",
+      "schedulers_prediction_type": "string",                     ==> CONTEMPLATED
+      "schedulers_beta_schedule": "string",                       ==> CONTEMPLATED
       "schedulers_timesteps": "string",
-      "schedulers_sigma": "string",
+      "schedulers_sigma": "string",                               ==> CONTEMPLATED
       "schedulers_use_thresholding": true,
       "schedulers_use_loworder": true,
       "schedulers_solver_order": 0,
@@ -538,7 +538,7 @@ class API(db.APIProtocol):
       "schedulers_base_shift": 0,
       "schedulers_max_shift": 0,
       "schedulers_rescale_betas": true,
-      "schedulers_timestep_spacing": "string",
+      "schedulers_timestep_spacing": "string",                    ==> CONTEMPLATED
       "schedulers_timesteps_range": 0,
       "schedulers_sigma_adjust": 0,
       "schedulers_sigma_adjust_min": 0,
@@ -549,7 +549,7 @@ class API(db.APIProtocol):
       "diffusers_generator_device": "string",
       "nan_skip": true,
       "sequential_seed": true,
-      "prompt_attention": "string",                           ==> CONTEMPLATED
+      "prompt_attention": "string",                               ==> CONTEMPLATED
       "prompt_mean_norm": true,
       "diffusers_zeros_prompt_pad": true,
       "te_pooled_embeds": true,
@@ -642,6 +642,8 @@ class API(db.APIProtocol):
 
     """
     # set options; most importantly, set the model if needed
+    if model['hash'] != meta['model_hash']:
+      raise Error(f'Model hash mismatch: expected {meta["model_hash"]}, got {model["hash"]}')
     base_options: tbase.JSONDict = {
       # FIXED OPTIONS
       'clip_skip_enabled': True,
@@ -649,21 +651,25 @@ class API(db.APIProtocol):
       'lora_add_hashes_to_infotext': True,
       'lora_in_memory_limit': 3,
       # VARIABLE OPTIONS
+      'sd_checkpoint_hash': model['hash'],  # set the model hash to trigger load if needed
       'prompt_attention': meta['parser'],
       'clip_skip': meta['clip_skip'] // 10,  # TODO: in future, when accepts float do regular div
+      'schedulers_sigma': 'default' if meta['sch_sigma'] is None else meta['sch_sigma'],
+      'schedulers_timestep_spacing': (
+        'default' if meta['sch_spacing'] is None else meta['sch_spacing']
+      ),
+      'schedulers_beta_schedule': 'default' if meta['sch_beta'] is None else meta['sch_beta'],
+      'schedulers_prediction_type': 'default' if meta['sch_type'] is None else meta['sch_type'],
     }
-    if model['hash'] != meta['model_hash']:
-      raise Error(f'Model hash mismatch: expected {meta["model_hash"]}, got {model["hash"]}')
-    api_options = self.options  # get current options from API
-    if str(api_options['sd_checkpoint_hash'] or '') != model['hash']:
-      logging.info(f'Switching models: {api_options["sd_model_checkpoint"]!r} -> {model["name"]!r}')
-      with timer.Timer(emit_log=False) as tmr_load:
-        base_options['sd_checkpoint_hash'] = model['hash']
-        self.options = base_options  # set the model, this will trigger the load in SDNext
+    with timer.Timer(emit_log=False) as tmr_load:
+      api_options = self.options  # get current options from API before sending any changes
+      if str(api_options['sd_checkpoint_hash'] or '') != model['hash']:
+        logging.info(f'Change models: {api_options["sd_model_checkpoint"]!r} -> {model["name"]!r}')
+      self.options = base_options  # set the options above; will call API and update model if needed
+      if str(api_options['sd_checkpoint_hash'] or '') != model['hash']:
+        logging.info('Reloading checkpoint')
         self.Call(APICalls.RELOAD_CHECKPOINT)  # needed if running in api-only to trigger new load
-      logging.info(f'Model loaded in SDNext API in {tmr_load}')
-    else:
-      self.options = base_options  # set the options minus the model; will quickly call API
+    logging.info(f'Options loaded in SDNext API in {tmr_load}')
     # sanity check some options
     if (
       meta['width'] <= 0
@@ -676,13 +682,19 @@ class API(db.APIProtocol):
       raise Error(f'Sampler {meta["sampler"]!r} not supported by SDNext')
     # set the options
     options: tbase.JSONDict = {
-      'save_images': self._server_save_images,
+      # FIXED OPTIONS
       'send_images': True,
+      'n_iter': 1,
+      'batch_size': 1,
+      'tiling': False,
+      'vae_type': 'Full',  # TODO: see if this should be variable
+      'hidiffusion': False,
+      # VARIABLE OPTIONS
+      'save_images': self._server_save_images,
       'sd_model_checkpoint': model['name'],
       'prompt': meta['positive'],
       'negative_prompt': meta['negative'],
       'steps': meta['steps'],
-      'n_iter': 1,
       'seed': meta['seed'],
       'subseed': base.SeedGen() if meta['v_seed'] is None else meta['v_seed'][0],
       'subseed_strength': 0 if meta['v_seed'] is None else meta['v_seed'][1] / 100,  # divide by 100
@@ -693,6 +705,12 @@ class API(db.APIProtocol):
       'cfg_scale': meta['cfg_scale'] / 10,  # remember to divide by 10
       'cfg_end': meta['cfg_end'] / 10,  # remember to divide by 10
       'clip_skip': meta['clip_skip'] // 10,  # TODO: in future, when accepts float do regular div
+      'schedulers_sigma': 'default' if meta['sch_sigma'] is None else meta['sch_sigma'],
+      'schedulers_timestep_spacing': (
+        'default' if meta['sch_spacing'] is None else meta['sch_spacing']
+      ),
+      'schedulers_beta_schedule': 'default' if meta['sch_beta'] is None else meta['sch_beta'],
+      'schedulers_prediction_type': 'default' if meta['sch_type'] is None else meta['sch_type'],
     }
     # make the call to the APIs
     logging.info(f'Generating image with SDNext API, options: {options}')
