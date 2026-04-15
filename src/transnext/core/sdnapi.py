@@ -362,7 +362,7 @@ class API(db.APIProtocol):
       "guidance_stop": 1,                           ==> IGNORED BY txt2img
       "cfg_scale": 6,                               ==> CONTEMPLATED
       "cfg_end": 1,                                 ==> CONTEMPLATED
-      "diffusers_guidance_rescale": 0,  # TODO
+      "diffusers_guidance_rescale": 0,              ==> CONTEMPLATED
       "pag_scale": 0,
       "pag_adaptive": 0.5,
       "styles": [
@@ -704,6 +704,7 @@ class API(db.APIProtocol):
       'prompt_attention': meta['parser'],
       'cfg_scale': meta['cfg_scale'] / 10,  # remember to divide by 10
       'cfg_end': meta['cfg_end'] / 10,  # remember to divide by 10
+      'diffusers_guidance_rescale': meta['cfg_rescale'] / 100,  # remember to divide by 100
       'clip_skip': meta['clip_skip'] // 10,  # TODO: in future, when accepts float do regular div
       'schedulers_sigma': 'default' if meta['sch_sigma'] is None else meta['sch_sigma'],
       'schedulers_timestep_spacing': (

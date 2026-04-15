@@ -38,6 +38,7 @@ def Make(  # documentation is help/epilog/args # noqa: D103
   clip_skip: int = base.SD_CLIP_SKIP_OPTION,  # type: ignore[assignment]  # TODO: float in future
   cfg_scale: float = base.SD_CFG_SCALE_OPTION,  # type: ignore[assignment]
   cfg_end: float = base.SD_CFG_END_OPTION,  # type: ignore[assignment]
+  cfg_rescale: float = base.SD_CFG_RESCALE_OPTION,  # type: ignore[assignment]
   sch_sigma: base.SchedulerSigma | None = base.SD_SCHEDULER_SIGMA_OPTION,  # type: ignore[assignment]
   sch_spacing: base.SchedulerSpacing | None = base.SD_SCHEDULER_SPACING_OPTION,  # type: ignore[assignment]
   sch_beta: base.SchedulerBeta | None = base.SD_SCHEDULER_BETA_OPTION,  # type: ignore[assignment]
@@ -75,6 +76,7 @@ def Make(  # documentation is help/epilog/args # noqa: D103
           'clip_skip': round(clip_skip * 10),  # store as int (times 10)
           'cfg_scale': round(cfg_scale * 10),  # store as int (times 10)
           'cfg_end': round(cfg_end * 10),  # store as int (times 10)
+          'cfg_rescale': round(cfg_rescale * 100),  # store as int (times 100)
           'sch_sigma': sch_sigma.value if sch_sigma else None,
           'sch_spacing': sch_spacing.value if sch_spacing else None,
           'sch_beta': sch_beta.value if sch_beta else None,

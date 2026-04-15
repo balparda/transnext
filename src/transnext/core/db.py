@@ -147,6 +147,7 @@ class AIMetaType(TypedDict):
   steps: int  # number of steps used in AI processing
   cfg_scale: int  # CFG scale used in AI processing (guidance scale, times 10 for int storage)
   cfg_end: int  # CFG end step used in AI processing (times 10 for int storage)
+  cfg_rescale: int  # CFG rescale used in AI processing (times 100 for int storage)
   sampler: str  # base.Sampler string used in AI processing
   parser: str  # base.QueryParser string used for the prompts
   clip_skip: int  # CLIP skip used in AI processing (times 10 for int storage)
@@ -182,6 +183,7 @@ def AIMetaTypeFactory(overrides: dict[str, object] | None = None) -> AIMetaType:
     parser=base.SD_DEFAULT_QUERY_PARSER.value,
     cfg_scale=base.SD_DEFAULT_CFG_SCALE,
     cfg_end=base.SD_DEFAULT_CFG_END,
+    cfg_rescale=base.SD_DEFAULT_CFG_RESCALE,
     clip_skip=base.SD_DEFAULT_CLIP_SKIP,
     sch_sigma=None,
     sch_spacing=None,
@@ -883,6 +885,9 @@ def _ImportImageFile(  # noqa: C901, PLR0912, PLR0914, PLR0915
     # OPTIONAL FIELDS (if missing will have defaults, but if present must be valid)
     negative=meta_raw.get('negative') or None,
     cfg_end=_FloatKey('cfg end', 0, empty=base.SD_EMPTY_CFG_END),
+    cfg_rescale=_FloatKey(
+      'cfg rescale', base.SD_DEFAULT_CFG_RESCALE, empty=base.SD_EMPTY_CFG_RESCALE, conversion=100
+    ),
     parser=parser.value,
     clip_skip=_FloatKey('clip skip', 0, empty=base.SD_EMPTY_CLIP_SKIP),
     sch_sigma=sch_sigma.value if sch_sigma else None,

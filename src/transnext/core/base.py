@@ -185,6 +185,7 @@ SD_DEFAULT_HEIGHT: int = 512
 SD_DEFAULT_CFG_SCALE: int = 60  # default to 6.0 (multiply by 10 for CLI option)
 SD_MAX_CFG_SCALE: int = 300  # max 30.0 (multiply by 10 for CLI option)
 SD_DEFAULT_CFG_END: int = 8  # default to 0.8 (end at 80% of the steps; multiply by 10)
+SD_DEFAULT_CFG_RESCALE: int = 0  # default to 0.0 (no rescaling)
 SD_DEFAULT_CLIP_SKIP: int = 10  # default to 1.0 (multiply by 10 for CLI option)
 SD_MAX_CLIP_SKIP: int = 50  # max 5.0 (multiply by 10 for CLI option)
 SD_DEFAULT_QUERY_PARSER: QueryParser = QueryParser.A1111
@@ -194,6 +195,7 @@ SD_DEFAULT_SAMPLER: Sampler = Sampler.DPM_P_SDE
 # these are strings to be inserted in metadata, so they are NOT multiplied by 10 like CLI options
 SD_EMPTY_QUERY_PARSER: str = QueryParser.A1111.value
 SD_EMPTY_CFG_END: str = '1.0'  # for empty prompts, default to 1.0 CFG end (i.e., full guidance)
+SD_EMPTY_CFG_RESCALE: str = '0.0'  # for empty prompts, default to 0.0 CFG rescale (no rescaling)
 SD_EMPTY_CLIP_SKIP: str = '1.0'  # for empty prompts, default to 1.0 CLIP skip
 SD_EMPTY_V_SEED: str = '-1'  # for empty prompts, default to -1 variation seed
 SD_EMPTY_V_STRENGTH: str = '0'  # for empty prompts, default to 0.0 variation strength
@@ -384,6 +386,18 @@ SD_CFG_END_OPTION: typer.models.OptionInfo = typer.Option(
   max=1.0,
   help=(
     f'CFG scale application end (guidance end); 0.0 ≤ c ≤ 1.0; default: {SD_DEFAULT_CFG_END / 10}'
+  ),
+)
+SD_CFG_RESCALE_OPTION: typer.models.OptionInfo = typer.Option(
+  SD_DEFAULT_CFG_RESCALE / 100,
+  '--cfg-rescale',
+  min=0.0,
+  max=1.0,
+  help=(
+    'Adjusts the CFG guided result to reduce the tendency of high CFG to cause overexposure / '
+    'oversaturation / burned highlights / harsh color shifts; '
+    'you usually only want this for higher CFG scales `-g/--cfg` (e.g., > 7.0); '
+    f'0.0 ≤ r ≤ 1.0; default: {SD_DEFAULT_CFG_RESCALE / 100}'
   ),
 )
 
