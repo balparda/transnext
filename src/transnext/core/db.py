@@ -157,6 +157,7 @@ class AIMetaType(TypedDict):
   sch_beta: str | None  # base.SchedulerBeta string used; None is 'default'
   sch_type: str | None  # base.SchedulerPredictionType string used; None is 'default'
   ngms: int | None  # A1111 only/obsolete: “Negative Guidance minimum sigma” (times 100 int storage)
+  cfg_skip: int | None  # A1111 only/obsolete: “Skip Early CFG” (times 100 int storage)
   img2img: AIImg2ImgType | None  # img2img-specific metadata; None if txt2img
 
 
@@ -196,6 +197,7 @@ def AIMetaTypeFactory(overrides: dict[str, object] | None = None) -> AIMetaType:
     sch_beta=None,
     sch_type=None,
     ngms=None,
+    cfg_skip=None,
     img2img=None,
   )
   obj.update(overrides or {})  # type: ignore[typeddict-item]
@@ -915,7 +917,6 @@ def _ImportImageFile(  # noqa: C901, PLR0912, PLR0914, PLR0915
   ):
     img2img = AIImg2ImgType(
       init_image_hash=None,  # i think we can never tell unless we did it ourselves
-      # TODO: investigate options to convince SDNext to include the init image in the info...
       denoising=_FloatKey('denoising strength', base.SD_DEFAULT_DENOISING, conversion=100),
     )
   # build the AIMetaType with the parsed and validated properties
@@ -947,6 +948,7 @@ def _ImportImageFile(  # noqa: C901, PLR0912, PLR0914, PLR0915
       sch_type.value if sch_type and sch_type != base.SchedulerPredictionType.default else None
     ),
     ngms=_FloatKey('ngms', 0, empty='0', conversion=100) or None,
+    cfg_skip=_FloatKey('skip early cfg', 0, empty='0', conversion=100) or None,
     img2img=img2img,
   )
   # do more checks; be strict
