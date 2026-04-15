@@ -8,6 +8,7 @@ Look at <http://127.0.0.1:7860/docs> on a running server to see the API calls an
 from __future__ import annotations
 
 import base64
+import copy
 import enum
 import io
 import json
@@ -642,6 +643,8 @@ class API(db.APIProtocol):
 
     """
     # set options; most importantly, set the model if needed
+    if meta['img2img'] is not None:
+      raise Error('img2img is not supported by Txt2Img() call')
     if model['hash'] != meta['model_hash']:
       raise Error(f'Model hash mismatch: expected {meta["model_hash"]}, got {model["hash"]}')
     base_options: tbase.JSONDict = {
@@ -765,7 +768,7 @@ class API(db.APIProtocol):
       created_at=tm_created,
       origin=db.ImageOrigin.TransNext.value,
       version=f'{self.version}/{__version__}',  # TransNext version is like '0eb4a98e0/1.0.0'
-      ai_meta=meta.copy(),
+      ai_meta=copy.deepcopy(meta),
       sd_info=json.loads(cast('str', data['info'])),
       sd_params=cast('tbase.JSONDict', data['parameters']),
       parse_errors=[],

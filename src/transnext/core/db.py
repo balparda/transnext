@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import abc as abstract
+import copy
 import enum
 import io
 import logging
@@ -132,9 +133,9 @@ class AIMetaType(TypedDict):
   It should be complete enough to allow us to reproduce the generation of the image.
 
   Keep it shallow and simple, only primitive types, no complex objects or custom classes,
-  to ensure it is comparable and serializable without issues.
+  to ensure it is comparable and serializable without issues. Avoid lists. No sets and enums.
 
-  No dict, no list. If we add that we'll have to implement custom comparison.
+  ATTENTION: Since this is not so shallow anymore, it needs copy.deepcopy()!
   """
 
   model_hash: str | None  # AI model hash (only None if we could not parse/find the model)
@@ -155,6 +156,8 @@ class AIMetaType(TypedDict):
   sch_spacing: str | None  # base.SchedulerSpacing string used; None is 'default'
   sch_beta: str | None  # base.SchedulerBeta string used; None is 'default'
   sch_type: str | None  # base.SchedulerPredictionType string used; None is 'default'
+  ngms: int | None  # A1111 only/obsolete: “Negative Guidance minimum sigma” (times 100 int storage)
+  img2img: AIImg2ImgType | None  # img2img-specific metadata; None if txt2img
 
 
 def AIMetaTypeFactory(overrides: dict[str, object] | None = None) -> AIMetaType:
@@ -162,6 +165,9 @@ def AIMetaTypeFactory(overrides: dict[str, object] | None = None) -> AIMetaType:
 
   SPECIAL CASE: seed in {None, -1, 0} will NOT overwrite, will generate a random seed!
   SPECIAL CASE: v_seed in {None, -1, 0} and strength>0 will NOT overwrite, will generate random seed
+
+  Args:
+    overrides: dict of fields to override from the defaults; if None, will use all defaults
 
   Returns:
     A new AIMetaType object with default values.
@@ -189,6 +195,8 @@ def AIMetaTypeFactory(overrides: dict[str, object] | None = None) -> AIMetaType:
     sch_spacing=None,
     sch_beta=None,
     sch_type=None,
+    ngms=None,
+    img2img=None,
   )
   obj.update(overrides or {})  # type: ignore[typeddict-item]
   # make sure seed is actually set now
@@ -200,6 +208,35 @@ def AIMetaTypeFactory(overrides: dict[str, object] | None = None) -> AIMetaType:
   if obj['v_seed'] is not None and not 0 < obj['v_seed'][0] <= base.SD_MAX_SEED:
     raise Error(f'Invalid `v_seed` value in AIMetaType: {obj}')
   # done
+  return obj
+
+
+class AIImg2ImgType(TypedDict):
+  """AI img2img-specific metadata.
+
+  Keep it shallow and simple, only primitive types, no complex objects or custom classes,
+  to ensure it is comparable and serializable without issues. Avoid lists. No sets and enums.
+  """
+
+  init_image_hash: str | None  # hash of the initial image used for img2img, if known
+  denoising: int  # img2img denoising strength (times 100 for int storage)
+
+
+def AIImg2ImgTypeFactory(overrides: dict[str, object] | None = None) -> AIImg2ImgType:
+  """Create new AIImg2ImgType object with default values.
+
+  Args:
+    overrides: dict of fields to override from the defaults; if None, will use all defaults
+
+  Returns:
+    A new AIImg2ImgType object with default values.
+
+  """
+  obj: AIImg2ImgType = AIImg2ImgType(
+    init_image_hash=None,
+    denoising=base.SD_DEFAULT_DENOISING,
+  )
+  obj.update(overrides or {})  # type: ignore[typeddict-item]
   return obj
 
 
@@ -469,7 +506,7 @@ class AIDatabase:
     db_entry, img_bytes = api.Txt2Img(
       self._db['models'][meta['model_hash']].copy(), meta, dir_root=self.output
     )
-    self._db['images'][db_entry['hash']] = db_entry.copy()  # add to DB images
+    self._db['images'][db_entry['hash']] = copy.deepcopy(db_entry)  # add to DB images
     return (db_entry, img_bytes)
 
   def Sync(  # noqa: C901, PLR0912, PLR0914, PLR0915
@@ -798,7 +835,6 @@ def _ImportImageFile(  # noqa: C901, PLR0912, PLR0914, PLR0915
       parse_errors=['no AI metadata'],
     )
   # parse metadata
-  # TODO: create a field and make sure to distinguish txt2img vs img2img
   # TODO: lora metadata
   meta_raw: dict[str, str] = _ParseImageMetadata(info_text) if info_text else {}
   parse_errors: list[str] = []
@@ -870,6 +906,18 @@ def _ImportImageFile(  # noqa: C901, PLR0912, PLR0914, PLR0915
   sch_type: base.SchedulerPredictionType | None = _EnumKey(
     base.SchedulerPredictionType, 'sampler type', None, empty='default'
   )
+  # img2img
+  img2img: AIImg2ImgType | None = None
+  if (
+    meta_raw.get('operations', '').lower() == 'img2img'
+    or 'img2img' in info_text.lower()
+    or meta_raw.get('denoising strength')  # A1111 would only leave this clue
+  ):
+    img2img = AIImg2ImgType(
+      init_image_hash=None,  # i think we can never tell unless we did it ourselves
+      # TODO: investigate options to convince SDNext to include the init image in the info...
+      denoising=_FloatKey('denoising strength', base.SD_DEFAULT_DENOISING, conversion=100),
+    )
   # build the AIMetaType with the parsed and validated properties
   ai_meta: AIMetaType = AIMetaType(
     # MANDATORY FIELDS (must be present and valid, otherwise we consider this image as malformed)
@@ -890,10 +938,16 @@ def _ImportImageFile(  # noqa: C901, PLR0912, PLR0914, PLR0915
     ),
     parser=parser.value,
     clip_skip=_FloatKey('clip skip', 0, empty=base.SD_EMPTY_CLIP_SKIP),
-    sch_sigma=sch_sigma.value if sch_sigma else None,
-    sch_spacing=sch_spacing.value if sch_spacing else None,
-    sch_beta=sch_beta.value if sch_beta else None,
-    sch_type=sch_type.value if sch_type else None,
+    sch_sigma=sch_sigma.value if sch_sigma and sch_sigma != base.SchedulerSigma.default else None,
+    sch_spacing=(
+      sch_spacing.value if sch_spacing and sch_spacing != base.SchedulerSpacing.default else None
+    ),
+    sch_beta=sch_beta.value if sch_beta and sch_beta != base.SchedulerBeta.default else None,
+    sch_type=(
+      sch_type.value if sch_type and sch_type != base.SchedulerPredictionType.default else None
+    ),
+    ngms=_FloatKey('ngms', 0, empty='0', conversion=100) or None,
+    img2img=img2img,
   )
   # do more checks; be strict
   # SEED

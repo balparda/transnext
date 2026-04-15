@@ -108,6 +108,7 @@ class Sampler(enum.Enum):
   DPM_FAST = 'DPM fast'
   DPM_P_2S_A = 'DPM++ 2S a'
   DPM_P_2S_A_KARRAS = 'DPM++ 2S a Karras'
+  DPM_P_2M_KARRAS = 'DPM++ 2M Karras'
   DPM_P_3M_SDE = 'DPM++ 3M SDE'
   DPM_P_3M_SDE_KARRAS = 'DPM++ 3M SDE Karras'
 
@@ -119,6 +120,7 @@ class SamplerA1111(enum.Enum):
   DPM_FAST = 'DPM fast'
   DPM_P_2S_A = 'DPM++ 2S a'
   DPM_P_2S_A_KARRAS = 'DPM++ 2S a Karras'
+  DPM_P_2M_KARRAS = 'DPM++ 2M Karras'
   DPM_P_3M_SDE = 'DPM++ 3M SDE'
   DPM_P_3M_SDE_KARRAS = 'DPM++ 3M SDE Karras'
 
@@ -136,6 +138,7 @@ class QueryParser(enum.Enum):
 class SchedulerSigma(enum.Enum):
   """Sampler sigma schedule enum (`schedulers_sigma`)."""
 
+  default = 'default'
   karras = 'karras'
   betas = 'betas'
   exponential = 'exponential'
@@ -146,6 +149,7 @@ class SchedulerSigma(enum.Enum):
 class SchedulerSpacing(enum.Enum):
   """Sampler spacing enum (`schedulers_timestep_spacing`)."""
 
+  default = 'default'
   linspace = 'linspace'
   leading = 'leading'
   trailing = 'trailing'
@@ -154,6 +158,7 @@ class SchedulerSpacing(enum.Enum):
 class SchedulerBeta(enum.Enum):
   """Sampler beta schedule enum (`schedulers_beta_schedule`)."""
 
+  default = 'default'
   linear = 'linear'
   scaled = 'scaled'
   cosine = 'cosine'
@@ -164,6 +169,7 @@ class SchedulerBeta(enum.Enum):
 class SchedulerPredictionType(enum.Enum):
   """Sampler type enum (`schedulers_prediction_type`)."""
 
+  default = 'default'
   epsilon = 'epsilon'
   sample = 'sample'
   v_prediction = 'v_prediction'
@@ -180,11 +186,12 @@ SD_DEFAULT_HEIGHT: int = 512
 SD_DEFAULT_CFG_SCALE: int = 60  # default to 6.0 (multiply by 10 for CLI option)
 SD_MAX_CFG_SCALE: int = 300  # max 30.0 (multiply by 10 for CLI option)
 SD_DEFAULT_CFG_END: int = 8  # default to 0.8 (end at 80% of the steps; multiply by 10)
-SD_DEFAULT_CFG_RESCALE: int = 0  # default to 0.0 (no rescaling)
+SD_DEFAULT_CFG_RESCALE: int = 0  # default to 0.0 (no rescaling; multiply by 100)
 SD_DEFAULT_CLIP_SKIP: int = 10  # default to 1.0 (multiply by 10 for CLI option)
 SD_MAX_CLIP_SKIP: int = 50  # max 5.0 (multiply by 10 for CLI option)
 SD_DEFAULT_QUERY_PARSER: QueryParser = QueryParser.A1111
 SD_DEFAULT_SAMPLER: Sampler = Sampler.DPM_P_SDE
+SD_DEFAULT_DENOISING: int = 50  # IMG2IMG: how much to de-noise 0.5 (multiply by 100 for CLI option)
 
 # empty: for images we import that have some empty metadata, then these are the defaults
 # these are strings to be inserted in metadata, so they are NOT multiplied by 10 like CLI options
