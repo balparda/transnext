@@ -492,6 +492,27 @@ class AIDatabase:
       f'{[model["name"] for model in self._db["models"].values()]}'
     )
 
+  def _QueryNormalize(self, meta: AIMetaType) -> AIMetaType:
+    """Normalize an AIMetaType for consistent hashing and comparison.
+
+    Args:
+      meta: The AIMetaType to normalize
+
+    Returns:
+      A new AIMetaType with normalized fields.
+
+    """
+    # make a copy to modify without affecting caller
+    meta = copy.deepcopy(meta)
+    # inject lora info into meta
+    lora_weights: dict[str, tuple[str, str]] = base.LoraExtract(
+      meta['positive'] + '\n' + (meta['negative'] or '')
+    )
+    for lora_name, (_, weights) in lora_weights.items():
+      lora_hash: str = base.FindModelHash('lora', '', lora_name, _ModelsRef(self._db['lora']))
+      meta['lora'][lora_hash] = weights
+    return meta
+
   def Txt2Img(self, meta: AIMetaType, api: APIProtocol) -> tuple[DBImageType, bytes]:
     """Generate image from text prompt, store in DB.
 
@@ -504,14 +525,14 @@ class AIDatabase:
       A tuple containing the DBImageType object and the raw image data.
 
     Raises:
-      Error: on error
+      Error: if the model hash in meta is not found in the DB models
 
     """
+    meta = self._QueryNormalize(meta)  # this will, for example, add the lora info to the meta
     # we have the model?
     if meta['model_hash'] not in self._db['models']:
       raise Error(f'Model with hash {meta["model_hash"]} not found in DB models')
     # try to find it here already
-    # TODO: lora has to go here before
     db_entry: DBImageType
     for h, db_entry in self._db['images'].items():
       if db_entry['path'] and db_entry['ai_meta'] == meta:
@@ -526,10 +547,7 @@ class AIDatabase:
     # not found, generate new
     img_bytes: bytes
     db_entry, img_bytes = api.Txt2Img(
-      self._db['models'][meta['model_hash']].copy(),
-      meta,
-      _ModelsRef(self._db['lora']),
-      dir_root=self.output,
+      self._db['models'][meta['model_hash']].copy(), meta, dir_root=self.output
     )
     self._db['images'][db_entry['hash']] = copy.deepcopy(db_entry)  # add to DB images
     return (db_entry, img_bytes)
@@ -1105,7 +1123,6 @@ class APIProtocol(Protocol):
     self,
     model: AIModelType,
     meta: AIMetaType,
-    loras: dict[str, str],
     *,
     dir_root: pathlib.Path | None = None,
   ) -> tuple[DBImageType, bytes]:
@@ -1115,7 +1132,6 @@ class APIProtocol(Protocol):
       model: AIModelType object representing the model to use for generation
       meta: AIMetaType object containing the generation metadata (e.g., prompt, steps,
           seed, width, height, sampler_id, model_key)
-      loras: The DB loras like {hash: lora_name/alias}
       dir_root: (default: None) Directory root to save the generated image, if None don't save
 
     Returns:

@@ -426,11 +426,10 @@ class API(db.APIProtocol):
     # done, return
     return parsed
 
-  def Txt2Img(  # noqa: C901, PLR0912, PLR0914, PLR0915
+  def Txt2Img(  # noqa: C901, PLR0914, PLR0915
     self,
     model: db.AIModelType,
     meta: db.AIMetaType,
-    loras: dict[str, str],
     *,
     dir_root: pathlib.Path | None = None,
   ) -> tuple[db.DBImageType, bytes]:
@@ -748,7 +747,6 @@ class API(db.APIProtocol):
       model: AIModelType object representing the model to use for generation
       meta: AIMetaType object containing the generation metadata (e.g., prompt, steps,
           seed, width, height, sampler_id, model_key)
-      loras: The DB loras like {hash: lora_name/alias}
       dir_root: (default: None) Directory root to save the generated image, if None don't save
 
     Returns:
@@ -857,11 +855,6 @@ class API(db.APIProtocol):
       )
     # extract the data
     img_data, raw_hash, info_text = _ExtractImageData(data)
-    # inject lora info into meta
-    lora_weights: dict[str, tuple[str, str]] = base.LoraExtract(info_text)
-    for lora_name, (_, weights) in lora_weights.items():
-      lora_hash: str = base.FindModelHash('lora', '', lora_name, loras)  # raises if not found!
-      meta['lora'][lora_hash] = weights
     # hash, log
     img_hash: str = hashes.Hash256(img_data).hex()
     logging.info(f'Got {human.HumanizedBytes(len(img_data))} image in {tmr_generate}: {img_hash}')

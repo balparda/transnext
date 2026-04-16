@@ -499,6 +499,8 @@ def GetBasicDataFromImage(img_bytes: bytes) -> tuple[ImageFormat, int, int, str,
     # get the internal data we need (size and hash)
     width: int = img.width
     height: int = img.height
+    if width < 1 or height < 1:
+      raise Error(f'Invalid image size {width}x{height}')
     raw_hash: str = hashes.Hash256(img.convert('RGBA').tobytes()).hex()
     # try to extract metadata from PNG info tags, either 'parameters' or 'UserComment'
     info_text: str = ''
