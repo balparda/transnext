@@ -426,8 +426,13 @@ class API(db.APIProtocol):
     # done, return
     return parsed
 
-  def Txt2Img(  # noqa: C901, PLR0914
-    self, model: db.AIModelType, meta: db.AIMetaType, *, dir_root: pathlib.Path | None = None
+  def Txt2Img(  # noqa: C901, PLR0912, PLR0914, PLR0915
+    self,
+    model: db.AIModelType,
+    meta: db.AIMetaType,
+    loras: dict[str, str],
+    *,
+    dir_root: pathlib.Path | None = None,
   ) -> tuple[db.DBImageType, bytes]:
     """Generate image from text prompt using SDNext API.
 
@@ -743,6 +748,7 @@ class API(db.APIProtocol):
       model: AIModelType object representing the model to use for generation
       meta: AIMetaType object containing the generation metadata (e.g., prompt, steps,
           seed, width, height, sampler_id, model_key)
+      loras: The DB loras like {hash: lora_name/alias}
       dir_root: (default: None) Directory root to save the generated image, if None don't save
 
     Returns:
@@ -753,6 +759,7 @@ class API(db.APIProtocol):
           or if the image data is invalid.
 
     """
+    meta = copy.deepcopy(meta)  # make a copy of the meta to modify without affecting caller
     # set options; most importantly, set the model if needed
     if meta['img2img'] is not None:
       raise Error('img2img is not supported by Txt2Img() call')
@@ -765,7 +772,7 @@ class API(db.APIProtocol):
       # FIXED OPTIONS
       'clip_skip_enabled': clip_skip > 1,  # only enable if clip_skip > 1
       'no_half': True,
-      'lora_add_hashes_to_infotext': True,
+      'lora_add_hashes_to_infotext': True,  # TODO: not having any effect: investigate!
       'lora_in_memory_limit': 3,
       # VARIABLE OPTIONS
       'sd_checkpoint_hash': model['hash'],  # set the model hash to trigger load if needed
@@ -850,7 +857,12 @@ class API(db.APIProtocol):
       )
     # extract the data
     img_data, raw_hash, info_text = _ExtractImageData(data)
-    # TODO: inject lora info into meta
+    # inject lora info into meta
+    lora_weights: dict[str, tuple[str, str]] = base.LoraExtract(info_text)
+    for lora_name, (_, weights) in lora_weights.items():
+      lora_hash: str = base.FindModelHash('lora', '', lora_name, loras)  # raises if not found!
+      meta['lora'][lora_hash] = weights
+    # hash, log
     img_hash: str = hashes.Hash256(img_data).hex()
     logging.info(f'Got {human.HumanizedBytes(len(img_data))} image in {tmr_generate}: {img_hash}')
     # if we are going to save the image, figure out the full path
@@ -886,7 +898,7 @@ class API(db.APIProtocol):
       origin=db.ImageOrigin.TransNext.value,
       version=f'{self.version}/{__version__}',  # TransNext version is like '0eb4a98e0/1.0.0'
       info=info_text,
-      ai_meta=copy.deepcopy(meta),
+      ai_meta=meta,  # no need to copy here since we already copied above
       sd_info=json.loads(cast('str', data['info'])),
       sd_params=cast('tbase.JSONDict', data['parameters']),
       parse_errors={},

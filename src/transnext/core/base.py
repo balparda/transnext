@@ -10,6 +10,7 @@ import io
 import logging
 import os
 import pathlib
+import re
 from collections import abc
 
 import typer
@@ -507,3 +508,59 @@ def GetBasicDataFromImage(img_bytes: bytes) -> tuple[ImageFormat, int, int, str,
     elif 'UserComment' in pil_info and isinstance(pil_info['UserComment'], str):
       info_text = pil_info['UserComment'].strip()
   return (fmt, width, height, raw_hash, info_text or None)
+
+
+_LORA_RE: re.Pattern[str] = re.compile(
+  r'<(?P<kind>lora|lyco|lycora|lycoris):(?P<name>[^:>]+):(?P<strength>[^>]+)>'
+)
+
+LoraExtract: abc.Callable[[str], dict[str, tuple[str, str]]] = lambda q: {
+  m['name'].lower().strip(): (m['kind'], m['strength'].strip()) for m in _LORA_RE.finditer(q)
+}
+
+
+def FindModelHash(tp: str, partial_hash: str, partial_name: str, models: dict[str, str]) -> str:
+  """Find a full model hash in the DB by prefix-matching a partial hash or looking at names.
+
+  Args:
+    tp: The type of model we are looking for, for error messages (e.g., "model" or "lora")
+    partial_hash: A partial (prefix) hash string to match against DB model hashes.
+    partial_name: A partial (prefix) name string to match against DB model names/aliases.
+    models: The DB models like {hash: model_name/alias}.
+
+  Returns:
+    The full model hash if a unique prefix match is found, or an empty string if not found
+
+  Raises:
+    Error: on error
+
+  """
+  # check not empty
+  tp = tp.strip().lower()
+  if tp not in {'model', 'lora'}:
+    raise Error(f'invalid `tp`: {tp!r}')
+  partial_hash, partial_name = partial_hash.strip().lower(), partial_name.strip().lower()
+  if not partial_hash.strip() and not partial_name.strip():
+    raise Error(f'{tp} empty query')
+  hash_matches: list[str] = []
+  if partial_hash:
+    # check for exact HASH match, the best of all
+    if partial_hash in models:
+      return partial_hash  # exact match
+    # check for partial hash match, second best, but still very confident
+    hash_matches = [h for h in models if h.lower().startswith(partial_hash)]
+    if len(hash_matches) == 1:
+      logging.debug(f'Matched partial {tp} hash {partial_hash!r} -> {hash_matches[0]!r}')
+      return hash_matches[0]  # found!
+  # check for partial name/alias match if we have a name, not super reliable:
+  # (could be a different version of the same model, for example)
+  name_matches: list[str] = []
+  if partial_name:
+    name_matches = [h for h, v in models.items() if partial_name in v.lower()]
+    if len(name_matches) == 1:
+      logging.debug(f'Matched partial {tp} name {partial_name!r} -> {name_matches[0]!r}')
+      return name_matches[0]  # found!
+  # no match found, this is an error
+  if len(hash_matches) > 1 or len(name_matches) > 1:
+    raise Error(f'ambiguous {tp} #{partial_hash}/{partial_name}: {hash_matches}/{name_matches}')
+  raise Error(f'{tp} #{partial_hash}/{partial_name} not found')

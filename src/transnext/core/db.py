@@ -511,6 +511,7 @@ class AIDatabase:
     if meta['model_hash'] not in self._db['models']:
       raise Error(f'Model with hash {meta["model_hash"]} not found in DB models')
     # try to find it here already
+    # TODO: lora has to go here before
     db_entry: DBImageType
     for h, db_entry in self._db['images'].items():
       if db_entry['path'] and db_entry['ai_meta'] == meta:
@@ -525,7 +526,10 @@ class AIDatabase:
     # not found, generate new
     img_bytes: bytes
     db_entry, img_bytes = api.Txt2Img(
-      self._db['models'][meta['model_hash']].copy(), meta, dir_root=self.output
+      self._db['models'][meta['model_hash']].copy(),
+      meta,
+      _ModelsRef(self._db['lora']),
+      dir_root=self.output,
     )
     self._db['images'][db_entry['hash']] = copy.deepcopy(db_entry)  # add to DB images
     return (db_entry, img_bytes)
@@ -586,9 +590,8 @@ class AIDatabase:
     new_image: int = 0
     meta_error: int = 0
     img_error: int = 0
-    models_ref: abc.Callable[[dict[str, AIModelType]], dict[str, str]] = lambda m: {
-      h: f'{v["name"]} {v["alias"]}' for h, v in m.items()
-    }
+    all_models: dict[str, str] = _ModelsRef(self._db['models'])
+    all_lora: dict[str, str] = _ModelsRef(self._db['lora'])
     Image.MAX_IMAGE_PIXELS = 500_000_000  # set a high limit to avoid DecompressionBombError
     with timer.Timer(emit_log=False) as tmr_add:
       for img_path in tqdm.tqdm(
@@ -628,11 +631,7 @@ class AIDatabase:
           # new image — parse metadata and add to DB
           try:
             new_entry: DBImageType = _ImportImageFile(
-              img_path,
-              img_bytes,
-              img_hash,
-              models_ref(self._db['models']),
-              models_ref(self._db['lora']),
+              img_path, img_bytes, img_hash, all_models, all_lora
             )
             self._db['images'][img_hash] = new_entry
             new_image += 1
@@ -691,6 +690,11 @@ class AIDatabase:
       f'In the DB we had {total_paths} total paths, {existing_paths} still existing, '
       f'so we dropped {total_paths - existing_paths} paths.'
     )
+
+
+_ModelsRef: abc.Callable[[dict[str, AIModelType]], dict[str, str]] = lambda m: {
+  h: f'{v["name"]} {v["alias"]}' for h, v in m.items()
+}
 
 
 _PARAMS_LINE_RE: re.Pattern[str] = re.compile(
@@ -777,61 +781,6 @@ def _ParseImageMetadata(info_text: str) -> dict[str, str]:  # noqa: C901, PLR091
   return result
 
 
-def _FindModelHash(tp: str, partial_hash: str, partial_name: str, models: dict[str, str]) -> str:
-  """Find a full model hash in the DB by prefix-matching a partial hash or looking at names.
-
-  Args:
-    tp: The type of model we are looking for, for error messages (e.g., "model" or "lora")
-    partial_hash: A partial (prefix) hash string to match against DB model hashes.
-    partial_name: A partial (prefix) name string to match against DB model names/aliases.
-    models: The DB models like {hash: model_name/alias}.
-
-  Returns:
-    The full model hash if a unique prefix match is found, or an empty string if not found
-
-  Raises:
-    Error: on error
-
-  """
-  # check not empty
-  tp = tp.strip().lower()
-  if tp not in {'model', 'lora'}:
-    raise Error(f'invalid `tp`: {tp!r}')
-  partial_hash, partial_name = partial_hash.strip().lower(), partial_name.strip().lower()
-  if not partial_hash.strip() and not partial_name.strip():
-    raise Error(f'{tp} empty query')
-  hash_matches: list[str] = []
-  if partial_hash:
-    # check for exact HASH match, the best of all
-    if partial_hash in models:
-      return partial_hash  # exact match
-    # check for partial hash match, second best, but still very confident
-    hash_matches = [h for h in models if h.lower().startswith(partial_hash)]
-    if len(hash_matches) == 1:
-      logging.debug(f'Matched partial {tp} hash {partial_hash!r} -> {hash_matches[0]!r}')
-      return hash_matches[0]  # found!
-  # check for partial name/alias match if we have a name, not super reliable:
-  # (could be a different version of the same model, for example)
-  name_matches: list[str] = []
-  if partial_name:
-    name_matches = [h for h, v in models.items() if partial_name in v.lower()]
-    if len(name_matches) == 1:
-      logging.debug(f'Matched partial {tp} name {partial_name!r} -> {name_matches[0]!r}')
-      return name_matches[0]  # found!
-  # no match found, this is an error
-  if len(hash_matches) > 1 or len(name_matches) > 1:
-    raise Error(f'ambiguous {tp} #{partial_hash}/{partial_name}: {hash_matches}/{name_matches}')
-  raise Error(f'{tp} #{partial_hash}/{partial_name} not found')
-
-
-_LORA_RE: re.Pattern[str] = re.compile(
-  r'<(?P<kind>lora|lyco|lycora|lycoris):(?P<name>[^:>]+):(?P<strength>[^>]+)>'
-)
-_LoraExtract: abc.Callable[[str], dict[str, tuple[str, str]]] = lambda q: {
-  m['name'].lower(): (m['kind'], m['strength']) for m in _LORA_RE.finditer(q)
-}
-
-
 def _ImportImageFile(  # noqa: C901, PLR0912, PLR0914, PLR0915
   img_path: pathlib.Path,
   img_bytes: bytes,
@@ -887,14 +836,14 @@ def _ImportImageFile(  # noqa: C901, PLR0912, PLR0914, PLR0915
   # resolve model hash
   model_hash: str | None = None
   try:
-    model_hash = _FindModelHash(
+    model_hash = base.FindModelHash(
       'model', meta_raw.get('model hash', ''), meta_raw.get('model', ''), models
     )
   except Error as err:
     parse_errors[str(err)] = None  # TODO: solve problem of too many missing models
   # resolve loras, if present
   lora_info: dict[str, str] = {}
-  lora_weights: dict[str, tuple[str, str]] = _LoraExtract(info_text)
+  lora_weights: dict[str, tuple[str, str]] = base.LoraExtract(info_text)
   unknown_lora: int = 0
   lora_hash: str
   name: str
@@ -909,7 +858,7 @@ def _ImportImageFile(  # noqa: C901, PLR0912, PLR0914, PLR0915
       if not weights:
         parse_errors[f'missing weights for lora #{hash_part}/{name}'] = None
       try:
-        lora_hash = _FindModelHash('lora', hash_part, name, loras)
+        lora_hash = base.FindModelHash('lora', hash_part, name, loras)
       except Error as err:
         parse_errors[str(err)] = None
         unknown_lora += 1
@@ -925,7 +874,7 @@ def _ImportImageFile(  # noqa: C901, PLR0912, PLR0914, PLR0915
     # we don't have the hashes, but we have the names from the query, so we try that...
     for name, (_, weights) in lora_weights.items():
       try:
-        lora_hash = _FindModelHash('lora', '', name, loras)
+        lora_hash = base.FindModelHash('lora', '', name, loras)
       except Error as err:
         parse_errors[str(err)] = None
         unknown_lora += 1
@@ -1153,7 +1102,12 @@ class APIProtocol(Protocol):
 
   @abstract.abstractmethod
   def Txt2Img(
-    self, model: AIModelType, meta: AIMetaType, *, dir_root: pathlib.Path | None = None
+    self,
+    model: AIModelType,
+    meta: AIMetaType,
+    loras: dict[str, str],
+    *,
+    dir_root: pathlib.Path | None = None,
   ) -> tuple[DBImageType, bytes]:
     """Generate image from text prompt using SDNext API.
 
@@ -1161,6 +1115,7 @@ class APIProtocol(Protocol):
       model: AIModelType object representing the model to use for generation
       meta: AIMetaType object containing the generation metadata (e.g., prompt, steps,
           seed, width, height, sampler_id, model_key)
+      loras: The DB loras like {hash: lora_name/alias}
       dir_root: (default: None) Directory root to save the generated image, if None don't save
 
     Returns:
