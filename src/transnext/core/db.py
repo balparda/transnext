@@ -170,6 +170,9 @@ class AIMetaType(TypedDict):
   cfg_skip: int | None  # A1111 only/obsolete: “Skip Early CFG” (times 100 int storage)
   lora: dict[str, str]  # {hash: lora_weights_string}; empty dict if no lora/lycoris used
   img2img: AIImg2ImgType | None  # img2img-specific metadata; None if txt2img
+  freeu: (
+    tuple[int, int, int, int] | None
+  )  # (b1, b2, s1, s2) FreeU backbone/skip feature scaling (times 100 int storage)
 
 
 def AIMetaTypeFactory(overrides: dict[str, object] | None = None) -> AIMetaType:
@@ -211,6 +214,14 @@ def AIMetaTypeFactory(overrides: dict[str, object] | None = None) -> AIMetaType:
     cfg_skip=None,
     lora={},
     img2img=None,
+    freeu=(
+      base.SD_DEFAULT_FREEU_B1,
+      base.SD_DEFAULT_FREEU_B2,
+      base.SD_DEFAULT_FREEU_S1,
+      base.SD_DEFAULT_FREEU_S2,
+    )
+    if base.SD_DEFAULT_FREEU
+    else None,
   )
   obj.update(overrides or {})  # type: ignore[typeddict-item]
   # make sure seed is actually set now
@@ -923,9 +934,11 @@ def _ImportImageFile(  # noqa: C901, PLR0912, PLR0914, PLR0915
       parse_errors[f'{key}: {err} -> {default}'] = None
       return default
 
-  def _FloatKey(key: str, default: int, *, empty: str | None = None, conversion: int = 10) -> int:
+  def _FloatKey(
+    data: dict[str, str], key: str, default: int, *, empty: str | None = None, conversion: int = 10
+  ) -> int:
     try:
-      return round(float(meta_raw.get(key, empty or ('no ' + key))) * conversion)
+      return round(float(data.get(key, empty or ('no ' + key))) * conversion)
     except ValueError as err:
       parse_errors[f'{key}: {err} -> {default}'] = None
       return default
@@ -942,7 +955,7 @@ def _ImportImageFile(  # noqa: C901, PLR0912, PLR0914, PLR0915
   # parse a bunch of properties
   v_seed: int = _IntKey('variation seed', -1, empty=base.SD_EMPTY_V_SEED)
   v_strength: int = _FloatKey(
-    'variation strength', 0, empty=base.SD_EMPTY_V_STRENGTH, conversion=100
+    meta_raw, 'variation strength', 0, empty=base.SD_EMPTY_V_STRENGTH, conversion=100
   )
   sampler: base.Sampler | None = _EnumKey(base.Sampler, 'sampler', base.Sampler.Euler_A)
   parser: base.QueryParser | None = _EnumKey(
@@ -971,7 +984,24 @@ def _ImportImageFile(  # noqa: C901, PLR0912, PLR0914, PLR0915
   ):
     img2img = AIImg2ImgType(
       input_hash=None,  # i think we can never tell unless we did it ourselves
-      denoising=_FloatKey('denoising strength', base.SD_DEFAULT_DENOISING, conversion=100),
+      denoising=_FloatKey(
+        meta_raw, 'denoising strength', base.SD_DEFAULT_DENOISING, conversion=100
+      ),
+    )
+  # parse FreeU settings from metadata if present (format: "b1=1.05 b2=1.1 s1=0.55 s2=0.45")
+  freeu: tuple[int, int, int, int] | None = None
+  if freeu_str := (meta_raw.get('freeu', '') or '').strip():
+    freeu_parts: dict[str, str] = {
+      k.strip().lower(): v.strip()
+      for part in freeu_str.split()
+      if '=' in part
+      for k, v in [part.split('=', 1)]
+    }
+    freeu = (
+      _FloatKey(freeu_parts, 'b1', base.SD_DEFAULT_FREEU_B1, empty='1.0', conversion=100),
+      _FloatKey(freeu_parts, 'b2', base.SD_DEFAULT_FREEU_B2, empty='1.0', conversion=100),
+      _FloatKey(freeu_parts, 's1', base.SD_DEFAULT_FREEU_S1, empty='1.0', conversion=100),
+      _FloatKey(freeu_parts, 's2', base.SD_DEFAULT_FREEU_S2, empty='1.0', conversion=100),
     )
   # build the AIMetaType with the parsed and validated properties
   ai_meta: AIMetaType = AIMetaType(
@@ -983,16 +1013,20 @@ def _ImportImageFile(  # noqa: C901, PLR0912, PLR0914, PLR0915
     width=width,
     height=height,
     steps=_IntKey('steps', 0),
-    cfg_scale=_FloatKey('cfg scale', 0),
+    cfg_scale=_FloatKey(meta_raw, 'cfg scale', 0),
     sampler=sampler.value,
     # OPTIONAL FIELDS (if missing will have defaults, but if present must be valid)
     negative=meta_raw.get('negative') or None,
-    cfg_end=_FloatKey('cfg end', 0, empty=base.SD_EMPTY_CFG_END),
+    cfg_end=_FloatKey(meta_raw, 'cfg end', 0, empty=base.SD_EMPTY_CFG_END),
     cfg_rescale=_FloatKey(
-      'cfg rescale', base.SD_DEFAULT_CFG_RESCALE, empty=base.SD_EMPTY_CFG_RESCALE, conversion=100
+      meta_raw,
+      'cfg rescale',
+      base.SD_DEFAULT_CFG_RESCALE,
+      empty=base.SD_EMPTY_CFG_RESCALE,
+      conversion=100,
     ),
     parser=parser.value,
-    clip_skip=_FloatKey('clip skip', 0, empty=base.SD_EMPTY_CLIP_SKIP),
+    clip_skip=_FloatKey(meta_raw, 'clip skip', 0, empty=base.SD_EMPTY_CLIP_SKIP),
     sch_sigma=sch_sigma.value if sch_sigma and sch_sigma != base.SchedulerSigma.default else None,
     sch_spacing=(
       sch_spacing.value if sch_spacing and sch_spacing != base.SchedulerSpacing.default else None
@@ -1001,10 +1035,11 @@ def _ImportImageFile(  # noqa: C901, PLR0912, PLR0914, PLR0915
     sch_type=(
       sch_type.value if sch_type and sch_type != base.SchedulerPredictionType.default else None
     ),
-    ngms=_FloatKey('ngms', 0, empty='0', conversion=100) or None,
-    cfg_skip=_FloatKey('skip early cfg', 0, empty='0', conversion=100) or None,
+    ngms=_FloatKey(meta_raw, 'ngms', 0, empty='0', conversion=100) or None,
+    cfg_skip=_FloatKey(meta_raw, 'skip early cfg', 0, empty='0', conversion=100) or None,
     lora=lora_info,
     img2img=img2img,
+    freeu=freeu,
   )
   # do more checks; be strict
   # SEED

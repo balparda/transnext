@@ -43,6 +43,11 @@ def Make(  # documentation is help/epilog/args # noqa: D103
   sch_spacing: base.SchedulerSpacing | None = base.SD_SCHEDULER_SPACING_OPTION,  # type: ignore[assignment]
   sch_beta: base.SchedulerBeta | None = base.SD_SCHEDULER_BETA_OPTION,  # type: ignore[assignment]
   sch_type: base.SchedulerPredictionType | None = base.SD_SCHEDULER_PREDICTION_TYPE_OPTION,  # type: ignore[assignment]
+  freeu_enabled: bool = base.SD_FREEU_OPTION,  # type: ignore[assignment]
+  freeu_b1: float = base.SD_FREEU_B1_OPTION,  # type: ignore[assignment]
+  freeu_b2: float = base.SD_FREEU_B2_OPTION,  # type: ignore[assignment]
+  freeu_s1: float = base.SD_FREEU_S1_OPTION,  # type: ignore[assignment]
+  freeu_s2: float = base.SD_FREEU_S2_OPTION,  # type: ignore[assignment]
   backup: bool = base.SD_API_SERVER_SAVE,  # type: ignore[assignment]
 ) -> None:
   # check sanity
@@ -81,6 +86,11 @@ def Make(  # documentation is help/epilog/args # noqa: D103
           'sch_spacing': sch_spacing.value if sch_spacing else None,
           'sch_beta': sch_beta.value if sch_beta else None,
           'sch_type': sch_type.value if sch_type else None,
+          'freeu_enabled': freeu_enabled,
+          'freeu_b1': round(freeu_b1 * 100),  # store as int (times 100)
+          'freeu_b2': round(freeu_b2 * 100),  # store as int (times 100)
+          'freeu_s1': round(freeu_s1 * 100),  # store as int (times 100)
+          'freeu_s2': round(freeu_s2 * 100),  # store as int (times 100)
         }
       ),
       api,

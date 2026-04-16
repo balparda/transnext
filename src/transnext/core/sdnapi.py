@@ -327,6 +327,7 @@ class API(db.APIProtocol):
       Error: If there is an error with the API call or if the response is invalid.
 
     """
+    # call
     models: tbase.JSONValue = self.Call(APICalls.MODELS)
     if (
       not isinstance(models, dict)
@@ -340,6 +341,7 @@ class API(db.APIProtocol):
     for model in models['items']:
       if not isinstance(model, dict):
         raise Error(f'Invalid model entry in SDNext API response: {model}')
+      # make the struct
       model_path = pathlib.Path(cast('str', model.get('filename', '')).strip())
       new_model: db.AIModelType = db.AIModelType(
         hash=cast('str', model.get('sha256', '') or '').strip(),
@@ -351,10 +353,12 @@ class API(db.APIProtocol):
         metadata=copy.deepcopy(model.copy()),
         description=None,
       )
+      # check name and path sanity; hash may be empty for now, so we don't check it
       if not model_path.exists():
         raise Error(f'Model file not found for model from SDNext API: {new_model}')
       if not new_model['name']:
         raise Error(f'Missing model name for model from SDNext API: {new_model}')
+      # done, so add to list
       parsed.append(new_model)
     # done, return
     return parsed
@@ -391,6 +395,7 @@ class API(db.APIProtocol):
       Error: If there is an error with the API call or if the response is invalid.
 
     """
+    # call
     loras: tbase.JSONValue = self.Call(APICalls.LORA)
     if not isinstance(loras, list) or not loras:
       raise Error(f'Invalid models response from SDNext API: {loras}')
@@ -399,6 +404,7 @@ class API(db.APIProtocol):
     for lora in loras:
       if not isinstance(lora, dict):
         raise Error(f'Invalid model entry in SDNext API response: {lora}')
+      # make the struct
       lora_path = pathlib.Path(cast('str', lora.get('path', '')).strip())
       new_lora: db.AIModelType = db.AIModelType(
         hash='',
@@ -414,15 +420,19 @@ class API(db.APIProtocol):
         ),
         description=None,
       )
+      # check name and path sanity; hash may be empty for now, so we don't check it
       if not lora_path.exists():
         raise Error(f'Model file not found for model from SDNext API: {new_lora}')
       if not new_lora['name']:
         raise Error(f'Missing model name for model from SDNext API: {new_lora}')
+      # figure out network type
       ss_network: str = cast('str', new_lora['metadata'].get('ss_network_module', '') or '').lower()
       if 'lyco' in ss_network:
         new_lora['function'] = db.ModelFunction.Lycoris.value
       elif ss_network.strip() and 'lora' not in ss_network:
         logging.error(f'Unknown `ss_network_module` from SDNext API: {ss_network!r} in {new_lora}')
+      # done, so add to list
+      parsed.append(new_lora)
     # done, return
     return parsed
 
@@ -806,11 +816,6 @@ class API(db.APIProtocol):
       'scheduler_eta': 0,
       'pag_scale': 0,  # TODO: make real option? shows up as 'CFG true' when != 0
       'pag_adaptive': 0.5,  # TODO: make real option? shows up as 'CFG adaptive' when != 0.5
-      'freeu_enabled': True,  # TODO: make real options in future
-      'freeu_b1': 1.05,
-      'freeu_b2': 1.10,
-      'freeu_s1': 0.55,
-      'freeu_s2': 0.45,
       'hypertile_unet_enabled': False,
       'hypertile_hires_only': False,
       'hypertile_unet_tile': 0,  # 0 in sdnext means automatic
@@ -836,6 +841,11 @@ class API(db.APIProtocol):
       'cfg_scale': meta['cfg_scale'] / 10,  # remember to divide by 10
       'cfg_end': meta['cfg_end'] / 10,  # remember to divide by 10
       'diffusers_guidance_rescale': meta['cfg_rescale'] / 100,  # remember to divide by 100
+      'freeu_enabled': bool(meta['freeu']),
+      'freeu_b1': meta['freeu'][0] / 100 if meta['freeu'] else 1.0,  # remember to divide by 100
+      'freeu_b2': meta['freeu'][1] / 100 if meta['freeu'] else 1.0,  # remember to divide by 100
+      'freeu_s1': meta['freeu'][2] / 100 if meta['freeu'] else 1.0,  # remember to divide by 100
+      'freeu_s2': meta['freeu'][3] / 100 if meta['freeu'] else 1.0,  # remember to divide by 100
       # OPTIONS THAT ARE 1:1 WITH API OPTIONS (so we copy)
       'prompt_attention': base_options['prompt_attention'],
       'clip_skip_enabled': base_options['clip_skip_enabled'],
