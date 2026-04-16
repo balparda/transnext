@@ -857,7 +857,7 @@ def _ImportImageFile(  # noqa: C901, PLR0912, PLR0914, PLR0915
     model_hash = base.FindModelHash(
       'model', meta_raw.get('model hash', ''), meta_raw.get('model', ''), models
     )
-  except Error as err:
+  except base.Error as err:
     parse_errors[str(err)] = None  # TODO: solve problem of too many missing models
   # resolve loras, if present
   lora_info: dict[str, str] = {}
@@ -877,7 +877,7 @@ def _ImportImageFile(  # noqa: C901, PLR0912, PLR0914, PLR0915
         parse_errors[f'missing weights for lora #{hash_part}/{name}'] = None
       try:
         lora_hash = base.FindModelHash('lora', hash_part, name, loras)
-      except Error as err:
+      except base.Error as err:
         parse_errors[str(err)] = None
         unknown_lora += 1
         lora_hash = f'unknown-{unknown_lora}-{name}-{hash_part}'
@@ -893,7 +893,7 @@ def _ImportImageFile(  # noqa: C901, PLR0912, PLR0914, PLR0915
     for name, (_, weights) in lora_weights.items():
       try:
         lora_hash = base.FindModelHash('lora', '', name, loras)
-      except Error as err:
+      except base.Error as err:
         parse_errors[str(err)] = None
         unknown_lora += 1
         lora_hash = f'unknown-{unknown_lora}-{name}-nohash'
