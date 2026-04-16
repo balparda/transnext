@@ -466,8 +466,8 @@ class API(db.APIProtocol):
       "cfg_scale": 6,                               ==> CONTEMPLATED
       "cfg_end": 1,                                 ==> CONTEMPLATED
       "diffusers_guidance_rescale": 0,              ==> CONTEMPLATED
-      "pag_scale": 0,
-      "pag_adaptive": 0.5,
+      "pag_scale": 0,                               ==> CONTEMPLATED / FIXED
+      "pag_adaptive": 0.5,                          ==> CONTEMPLATED / FIXED
       "styles": [                                   ==> CONTEMPLATED / FIXED
         "string"
       ],
@@ -646,7 +646,7 @@ class API(db.APIProtocol):
       "schedulers_sigma_adjust": 0,
       "schedulers_sigma_adjust_min": 0,
       "schedulers_sigma_adjust_max": 0,
-      "scheduler_eta": 0,
+      "scheduler_eta": 0,                                         ==> CONTEMPLATED / FIXED
       "eta_noise_seed_delta": 0,
       "enable_batch_seeds": true,
       "diffusers_generator_device": "string",
@@ -665,19 +665,19 @@ class API(db.APIProtocol):
       "freeu_s1": 0,
       "freeu_s2": 0,
       "hypertile_unet_enabled": true,
-      "hypertile_hires_only": true,
-      "hypertile_unet_tile": 0,
+      "hypertile_hires_only": true,                      ==> CONTEMPLATED / FIXED
+      "hypertile_unet_tile": 0,                          ==> CONTEMPLATED / FIXED
       "hypertile_unet_min_tile": 0,
-      "hypertile_unet_swap_size": 0,
-      "hypertile_unet_depth": 0,
-      "hypertile_vae_enabled": true,
+      "hypertile_unet_swap_size": 0,                     ==> CONTEMPLATED / FIXED
+      "hypertile_unet_depth": 0,                         ==> CONTEMPLATED / FIXED
+      "hypertile_vae_enabled": true,                     ==> CONTEMPLATED / FIXED
       "hypertile_vae_tile": 0,
       "hypertile_vae_swap_size": 0,
-      "teacache_enabled": true,
+      "teacache_enabled": true,                          ==> CONTEMPLATED / FIXED
       "teacache_thresh": 0,
-      "token_merging_method": "string",
-      "tome_ratio": 0,
-      "todo_ratio": 0,
+      "token_merging_method": "string",                  ==> CONTEMPLATED / FIXED
+      "tome_ratio": 0,                                   ==> CONTEMPLATED / FIXED
+      "todo_ratio": 0,                             ==> CONTEMPLATED / FIXED
       "override_settings_restore_afterwards": true,
       "override_settings": {
         "additionalProp1": {}
@@ -729,19 +729,6 @@ class API(db.APIProtocol):
       },
       "extra": {}
     }
-
-    # TODO: evaluate these:
-      •	guidance_scale
-      •	guidance_start
-      •	guidance_stop
-      •	schedulers_solver_order
-      •	scheduler_eta
-      •	pag_scale
-      •	pag_adaptive
-      •	freeu_enabled plus freeu_b1/b2/s1/s2
-      •	hypertile_unet_enabled / hypertile_vae_enabled and their params
-      •	teacache_enabled
-      •	token_merging_method, tome_ratio, todo_ratio
 
     Args:
       model: AIModelType object representing the model to use for generation
@@ -815,6 +802,25 @@ class API(db.APIProtocol):
       'enable_hr': False,
       'styles': [],
       'refiner_steps': 0,
+      'schedulers_solver_order': 0,
+      'scheduler_eta': 0,
+      'pag_scale': 0,  # TODO: make real option? shows up as 'CFG true' when != 0
+      'pag_adaptive': 0.5,  # TODO: make real option? shows up as 'CFG adaptive' when != 0.5
+      'freeu_enabled': True,  # TODO: make real options in future
+      'freeu_b1': 1.05,
+      'freeu_b2': 1.10,
+      'freeu_s1': 0.55,
+      'freeu_s2': 0.45,
+      'hypertile_unet_enabled': False,
+      'hypertile_hires_only': False,
+      'hypertile_unet_tile': 0,  # 0 in sdnext means automatic
+      'hypertile_unet_swap_size': 2,
+      'hypertile_unet_depth': 0,
+      'hypertile_vae_enabled': False,
+      'teacache_enabled': False,  # unnecessary optimization
+      'token_merging_method': None,  # unnecessary optimization
+      'tome_ratio': 0,  # unnecessary optimization
+      'todo_ratio': 0,  # unnecessary optimization
       # VARIABLE OPTIONS
       'save_images': self._server_save_images,
       'sd_model_checkpoint': model['name'],
@@ -830,7 +836,7 @@ class API(db.APIProtocol):
       'cfg_scale': meta['cfg_scale'] / 10,  # remember to divide by 10
       'cfg_end': meta['cfg_end'] / 10,  # remember to divide by 10
       'diffusers_guidance_rescale': meta['cfg_rescale'] / 100,  # remember to divide by 100
-      # OPTIONS THAT ARE 1:1 WITH API OPTIONS
+      # OPTIONS THAT ARE 1:1 WITH API OPTIONS (so we copy)
       'prompt_attention': base_options['prompt_attention'],
       'clip_skip_enabled': base_options['clip_skip_enabled'],
       'clip_skip': base_options['clip_skip'],

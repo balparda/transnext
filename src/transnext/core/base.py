@@ -63,7 +63,7 @@ class Sampler(enum.Enum):
   DDIM = 'DDIM'
 
   Euler = 'Euler'
-  Euler_A = 'Euler a'
+  Euler_A = 'Euler a'  # ancestral
   Euler_SGM = 'Euler SGM'
   Euler_EDM = 'Euler EDM'
   Euler_FlowMatch = 'Euler FlowMatch'
@@ -112,7 +112,7 @@ class Sampler(enum.Enum):
   DDPM = 'DDPM'
   LMSD = 'LMSD'
   KDPM2 = 'KDPM2'
-  KDPM2_a = 'KDPM2 a'
+  KDPM2_a = 'KDPM2 a'  # ancestral
   CMSI = 'CMSI'
   CogX_DDIM = 'CogX DDIM'
   DDIM_Parallel = 'DDIM Parallel'
@@ -125,8 +125,8 @@ class Sampler(enum.Enum):
   # in SAMPLER_EQUIVALENCE_A1111_TO_SDNEXT
   DPM_ADAPTIVE = 'DPM adaptive'
   DPM_FAST = 'DPM fast'
-  DPM_P_2S_A = 'DPM++ 2S a'
-  DPM_P_2S_A_KARRAS = 'DPM++ 2S a Karras'
+  DPM_P_2S_A = 'DPM++ 2S a'  # ancestral
+  DPM_P_2S_A_KARRAS = 'DPM++ 2S a Karras'  # ancestral
   DPM_P_2M_KARRAS = 'DPM++ 2M Karras'
   DPM_P_3M_SDE = 'DPM++ 3M SDE'
   DPM_P_3M_SDE_KARRAS = 'DPM++ 3M SDE Karras'
