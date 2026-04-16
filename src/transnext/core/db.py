@@ -7,7 +7,6 @@ from __future__ import annotations
 import abc as abstract
 import copy
 import enum
-import io
 import logging
 import pathlib
 import re
@@ -28,6 +27,8 @@ from transnext.core import base
 _DB_COMPRESS_LEVEL = 5  # default compression level for DB saving
 _DB_DISK_LOCK: threading.Lock = threading.Lock()  # lock for thread-safe DB operations
 
+_EXTENSIONS_TO_PARSE_LOWER: set[str] = {'.png', '.jpg', '.jpeg', '.gif'}
+
 
 class Error(base.Error):
   """TransNext DB exception."""
@@ -45,6 +46,7 @@ class _DBType(TypedDict):
   last_save: int  # timestamp of last save
   images: dict[str, DBImageType]  # {image_hash: image_metadata}
   models: dict[str, AIModelType]  # {model_hash: model}
+  lora: dict[str, AIModelType]  # {model_hash: lora/lycoris}
   known_image_sources: list[str]  # places to track images from
   image_output_dir: str | None  # current directory to save generated images to
 
@@ -62,6 +64,7 @@ def _DBTypeFactory(overrides: dict[str, object] | None = None) -> _DBType:
     'last_save': timer.Now(),
     'images': {},
     'models': {},
+    'lora': {},
     'known_image_sources': [],
     'image_output_dir': None,
   }
@@ -78,23 +81,6 @@ class ImageOrigin(enum.Enum):
   AIUnknown = 'AIUnknown'  # we could parse the metadata, but could not specify the origin
 
 
-class ImageFormat(enum.Enum):
-  """Image format enum."""
-
-  JPEG = 'JPEG'
-  PNG = 'PNG'
-  GIF = 'GIF'
-
-
-_PIL_FORMAT_MAP: dict[str, ImageFormat] = {
-  'JPEG': ImageFormat.JPEG,
-  'PNG': ImageFormat.PNG,
-  'GIF': ImageFormat.GIF,
-}
-
-_EXTENSIONS_TO_PARSE_LOWER: set[str] = {'.png', '.jpg', '.jpeg', '.gif'}
-
-
 class DBImageType(TypedDict):
   """DB image metadata type."""
 
@@ -109,19 +95,43 @@ class DBImageType(TypedDict):
   created_at: int  # timestamp of when the image was added to the DB
   origin: str | None  # ImageOrigin of the image, if known, otherwise None
   version: str | None  # version of the software that generated the image, if known, otherwise None
+  info: str | None  # original info string from the image metadata; None: could not extract info
   ai_meta: AIMetaType | None  # AI generation metadata; None: not an AI-gen image we could parse
   sd_info: tbase.JSONDict  # additional info from SDNext API response
   sd_params: tbase.JSONDict  # additional info from SDNext API response
-  parse_errors: list[str]  # any errors encountered during parsing of the image metadata
+  parse_errors: dict[str, None]  # any errors encountered during parsing of the image metadata
+
+
+class ModelType(enum.Enum):
+  """AI model type enum."""
+
+  safetensors = 'safetensors'
+  checkpoint = 'ckpt'
+  pt = 'pt'
+
+
+class ModelFunction(enum.Enum):
+  """AI model function enum."""
+
+  Model = 'Model'
+  Lora = 'Lora'
+  Lycoris = 'Lycoris'
 
 
 class AIModelType(TypedDict):
-  """AI model metadata type."""
+  """AI model metadata type.
 
-  hash: str  # hash of the model file
+  Keep it shallow and simple, only primitive types, no complex objects or custom classes,
+  to ensure it is comparable and serializable without issues. Avoid lists. No sets and enums.
+  """
+
+  hash: str  # hash of the model/lora/lycoris file
   name: str  # AI model identifier
+  alias: str  # AI model alias; can be equal to name
   path: str  # path to the model file
-  type: str  # model file type (e.g., 'safetensors', 'ckpt')
+  model_type: str  # ModelType file type (e.g., 'safetensors', 'ckpt')
+  function: str  # ModelFunction (e.g., 'Model', 'Lora', 'Lycoris')
+  metadata: tbase.JSONDict  # additional metadata from SDNext API response
   description: str | None  # brief description of the model's capabilities
 
 
@@ -158,6 +168,7 @@ class AIMetaType(TypedDict):
   sch_type: str | None  # base.SchedulerPredictionType string used; None is 'default'
   ngms: int | None  # A1111 only/obsolete: “Negative Guidance minimum sigma” (times 100 int storage)
   cfg_skip: int | None  # A1111 only/obsolete: “Skip Early CFG” (times 100 int storage)
+  lora: dict[str, str]  # {hash: lora_weights_string}; empty dict if no lora/lycoris used
   img2img: AIImg2ImgType | None  # img2img-specific metadata; None if txt2img
 
 
@@ -198,6 +209,7 @@ def AIMetaTypeFactory(overrides: dict[str, object] | None = None) -> AIMetaType:
     sch_type=None,
     ngms=None,
     cfg_skip=None,
+    lora={},
     img2img=None,
   )
   obj.update(overrides or {})  # type: ignore[typeddict-item]
@@ -220,26 +232,8 @@ class AIImg2ImgType(TypedDict):
   to ensure it is comparable and serializable without issues. Avoid lists. No sets and enums.
   """
 
-  init_image_hash: str | None  # hash of the initial image used for img2img, if known
+  input_hash: str | None  # hash of the initial image used for img2img, if known
   denoising: int  # img2img denoising strength (times 100 for int storage)
-
-
-def AIImg2ImgTypeFactory(overrides: dict[str, object] | None = None) -> AIImg2ImgType:
-  """Create new AIImg2ImgType object with default values.
-
-  Args:
-    overrides: dict of fields to override from the defaults; if None, will use all defaults
-
-  Returns:
-    A new AIImg2ImgType object with default values.
-
-  """
-  obj: AIImg2ImgType = AIImg2ImgType(
-    init_image_hash=None,
-    denoising=base.SD_DEFAULT_DENOISING,
-  )
-  obj.update(overrides or {})  # type: ignore[typeddict-item]
-  return obj
 
 
 class AIDatabase:
@@ -428,6 +422,27 @@ class AIDatabase:
     # done, log
     logging.info(f'Refreshed DB models; total models in DB: {len(self._db["models"])}')
 
+  def RefreshDBLora(self, api: APIProtocol) -> None:
+    """Refresh the DB lora by fetching from the API and updating the DB. Does NOT delete lora.
+
+    Args:
+      api: APIProtocol instance to use for fetching available models
+
+    """
+    loras: list[AIModelType] = api.GetLora()
+    # add missing hashes
+    all_paths: set[str] = {model['path'] for model in self._db['lora'].values() if model['path']}
+    for lora in loras:
+      if lora['path'] in all_paths:
+        continue  # skip duplicates by path (we know we have this one), we only want unique models
+      if not lora['hash'].strip():
+        logging.warning(f'Model with empty hash received from API, hashing {lora["path"]}')
+        lora['hash'] = hashes.Hash256(pathlib.Path(lora['path']).read_bytes()).hex()
+      logging.info(f'Adding model to DB: {lora["name"]} -> {lora["hash"]}')
+      self._db['lora'][lora['hash']] = lora  # add to DB lora
+    # done, log
+    logging.info(f'Refreshed DB lora; total lora in DB: {len(self._db["lora"])}')
+
   def GetModelHash(self, model_name: str, *, api: APIProtocol | None = None) -> str:
     """Get the model hash for a given model key. If API is given will also try to fetch.
 
@@ -449,7 +464,9 @@ class AIDatabase:
       raise Error('Model name cannot be empty')
     # search in DB models
     possible_models: list[AIModelType] = [
-      model for model in self._db['models'].values() if model_name in model['name'].lower()
+      model
+      for model in self._db['models'].values()
+      if model_name in model['name'].lower() or model_name in model['alias'].lower()
     ]
     if len(possible_models) > 1:
       raise Error(f'Multiple models found matching name "{model_name}": {possible_models}')
@@ -462,7 +479,9 @@ class AIDatabase:
     self.RefreshDBModels(api)
     # we have refreshed the DB models, try searching again
     possible_models = [
-      model for model in self._db['models'].values() if model_name in model['name'].lower()
+      model
+      for model in self._db['models'].values()
+      if model_name in model['name'].lower() or model_name in model['alias'].lower()
     ]
     if len(possible_models) > 1:
       raise Error(f'Multiple models found matching name "{model_name}": {possible_models}')
@@ -532,6 +551,7 @@ class AIDatabase:
     if api:
       logging.info('API provided for sync, refreshing DB models first')
       self.RefreshDBModels(api)
+      self.RefreshDBLora(api)
     # add the new dir to known sources if not already present
     if add_dir:
       str_add_dir: str = str(add_dir)
@@ -566,6 +586,9 @@ class AIDatabase:
     new_image: int = 0
     meta_error: int = 0
     img_error: int = 0
+    models_ref: abc.Callable[[dict[str, AIModelType]], dict[str, str]] = lambda m: {
+      h: f'{v["name"]} {v["alias"]}' for h, v in m.items()
+    }
     Image.MAX_IMAGE_PIXELS = 500_000_000  # set a high limit to avoid DecompressionBombError
     with timer.Timer(emit_log=False) as tmr_add:
       for img_path in tqdm.tqdm(
@@ -605,7 +628,11 @@ class AIDatabase:
           # new image — parse metadata and add to DB
           try:
             new_entry: DBImageType = _ImportImageFile(
-              img_path, img_bytes, img_hash, set(self._db['models'])
+              img_path,
+              img_bytes,
+              img_hash,
+              models_ref(self._db['models']),
+              models_ref(self._db['lora']),
             )
             self._db['images'][img_hash] = new_entry
             new_image += 1
@@ -750,12 +777,14 @@ def _ParseImageMetadata(info_text: str) -> dict[str, str]:  # noqa: C901, PLR091
   return result
 
 
-def _FindModelHash(partial_hash: str, models: set[str]) -> str:
-  """Find a full model hash in the DB by prefix-matching a partial hash.
+def _FindModelHash(tp: str, partial_hash: str, partial_name: str, models: dict[str, str]) -> str:
+  """Find a full model hash in the DB by prefix-matching a partial hash or looking at names.
 
   Args:
+    tp: The type of model we are looking for, for error messages (e.g., "model" or "lora")
     partial_hash: A partial (prefix) hash string to match against DB model hashes.
-    models: The DB models set (hashes only).
+    partial_name: A partial (prefix) name string to match against DB model names/aliases.
+    models: The DB models like {hash: model_name/alias}.
 
   Returns:
     The full model hash if a unique prefix match is found, or an empty string if not found
@@ -764,22 +793,51 @@ def _FindModelHash(partial_hash: str, models: set[str]) -> str:
     Error: on error
 
   """
-  partial_hash = partial_hash.strip().lower()
-  if not partial_hash:
-    raise Error('empty model hash')
-  if partial_hash in models:
-    return partial_hash  # exact match
-  matches: list[str] = [h for h in models if h.lower().startswith(partial_hash)]
-  if len(matches) == 1:
-    logging.debug(f'Matched partial model hash {partial_hash!r} -> {matches[0]}')
-    return matches[0]  # found!
-  if len(matches) > 1:
-    raise Error(f'ambiguous model #{partial_hash} matches {len(matches)}')
-  raise Error(f'model #{partial_hash} not found')
+  # check not empty
+  tp = tp.strip().lower()
+  if tp not in {'model', 'lora'}:
+    raise Error(f'invalid `tp`: {tp!r}')
+  partial_hash, partial_name = partial_hash.strip().lower(), partial_name.strip().lower()
+  if not partial_hash.strip() and not partial_name.strip():
+    raise Error(f'{tp} empty query')
+  hash_matches: list[str] = []
+  if partial_hash:
+    # check for exact HASH match, the best of all
+    if partial_hash in models:
+      return partial_hash  # exact match
+    # check for partial hash match, second best, but still very confident
+    hash_matches = [h for h in models if h.lower().startswith(partial_hash)]
+    if len(hash_matches) == 1:
+      logging.debug(f'Matched partial {tp} hash {partial_hash!r} -> {hash_matches[0]!r}')
+      return hash_matches[0]  # found!
+  # check for partial name/alias match if we have a name, not super reliable:
+  # (could be a different version of the same model, for example)
+  name_matches: list[str] = []
+  if partial_name:
+    name_matches = [h for h, v in models.items() if partial_name in v.lower()]
+    if len(name_matches) == 1:
+      logging.debug(f'Matched partial {tp} name {partial_name!r} -> {name_matches[0]!r}')
+      return name_matches[0]  # found!
+  # no match found, this is an error
+  if len(hash_matches) > 1 or len(name_matches) > 1:
+    raise Error(f'ambiguous {tp} #{partial_hash}/{partial_name}: {hash_matches}/{name_matches}')
+  raise Error(f'{tp} #{partial_hash}/{partial_name} not found')
+
+
+_LORA_RE: re.Pattern[str] = re.compile(
+  r'<(?P<kind>lora|lyco|lycora|lycoris):(?P<name>[^:>]+):(?P<strength>[^>]+)>'
+)
+_LoraExtract: abc.Callable[[str], dict[str, tuple[str, str]]] = lambda q: {
+  m['name'].lower(): (m['kind'], m['strength']) for m in _LORA_RE.finditer(q)
+}
 
 
 def _ImportImageFile(  # noqa: C901, PLR0912, PLR0914, PLR0915
-  img_path: pathlib.Path, img_bytes: bytes, img_hash: str, models: set[str]
+  img_path: pathlib.Path,
+  img_bytes: bytes,
+  img_hash: str,
+  models: dict[str, str],
+  loras: dict[str, str],
 ) -> DBImageType:
   """Parse an image file from disk and create a DBImageType entry.
 
@@ -790,7 +848,8 @@ def _ImportImageFile(  # noqa: C901, PLR0912, PLR0914, PLR0915
     img_path: Path to the image file.
     img_bytes: Raw bytes of the image file (already read).
     img_hash: Precomputed SHA-256 hex digest of the file bytes.
-    models: The DB models set (hashes only).
+    models: The DB models like {hash: model_name/alias}.
+    loras: The DB loras like {hash: lora_name/alias}.
 
   Returns:
     A populated DBImageType for the image.
@@ -800,24 +859,9 @@ def _ImportImageFile(  # noqa: C901, PLR0912, PLR0914, PLR0915
 
   """
   # open image from buffer
-  with Image.open(io.BytesIO(img_bytes)) as img:
-    # make sure format is known
-    fmt: ImageFormat | None = _PIL_FORMAT_MAP.get((img.format or '').upper())
-    if not fmt:
-      raise Error(f'Unsupported image format {img.format!r}')
-    # get the internal data we need (size and hash)
-    width: int = img.width
-    height: int = img.height
-    raw_hash: str = hashes.Hash256(img.convert('RGBA').tobytes()).hex()
-    # try to extract metadata from PNG info tags, either 'parameters' or 'UserComment'
-    info_text: str = ''
-    pil_info: tbase.JSONDict = img.info  # type: ignore[assignment]
-    if 'parameters' in pil_info and isinstance(pil_info['parameters'], str):
-      info_text = pil_info['parameters']
-    elif 'UserComment' in pil_info and isinstance(pil_info['UserComment'], str):
-      info_text = pil_info['UserComment']
+  fmt, width, height, raw_hash, info_text = base.GetBasicDataFromImage(img_bytes)
   # we have the metadata text, first check it is an AI image
-  if not info_text.strip():
+  if not info_text:
     # could not find metadata, we consider this a non-AI image
     return DBImageType(
       hash=img_hash,
@@ -831,22 +875,65 @@ def _ImportImageFile(  # noqa: C901, PLR0912, PLR0914, PLR0915
       created_at=int(img_path.stat().st_mtime),
       origin=None,
       version=None,
+      info=None,
       ai_meta=None,
       sd_info={},
       sd_params={},
-      parse_errors=['no AI metadata'],
+      parse_errors={'no AI metadata': None},
     )
   # parse metadata
-  # TODO: lora metadata
-  meta_raw: dict[str, str] = _ParseImageMetadata(info_text) if info_text else {}
-  parse_errors: list[str] = []
+  meta_raw: dict[str, str] = _ParseImageMetadata(info_text)
+  parse_errors: dict[str, None] = {}
   # resolve model hash
-  partial: str = meta_raw.get('model hash', '')
   model_hash: str | None = None
   try:
-    model_hash = _FindModelHash(partial, models) if partial else None
+    model_hash = _FindModelHash(
+      'model', meta_raw.get('model hash', ''), meta_raw.get('model', ''), models
+    )
   except Error as err:
-    parse_errors.append(str(err))
+    parse_errors[str(err)] = None  # TODO: solve problem of too many missing models
+  # resolve loras, if present
+  lora_info: dict[str, str] = {}
+  lora_weights: dict[str, tuple[str, str]] = _LoraExtract(info_text)
+  unknown_lora: int = 0
+  lora_hash: str
+  name: str
+  if 'lora hashes' in meta_raw:
+    # we have a list of 'hash: name' pairs to base on, so we get the hashes to do reliable matching
+    for lora in meta_raw['lora hashes'].lower().replace('"', '').split(','):
+      if not lora.strip():
+        continue  # skip empty entries
+      name, hash_part = lora.strip().split(':')
+      name, hash_part = name.strip(), hash_part.strip()
+      weights: str = lora_weights.get(name, ('', ''))[1]
+      if not weights:
+        parse_errors[f'missing weights for lora #{hash_part}/{name}'] = None
+      try:
+        lora_hash = _FindModelHash('lora', hash_part, name, loras)
+      except Error as err:
+        parse_errors[str(err)] = None
+        unknown_lora += 1
+        lora_hash = f'unknown-{unknown_lora}-{name}-{hash_part}'
+      lora_info[lora_hash] = weights
+  elif lora_weights or 'lora networks' in meta_raw:
+    # if we have 'lora networks' (a SDNext thing) we have the names but not the hashes
+    for lora in meta_raw.get('lora networks', '').lower().replace('"', '').split(','):
+      name = lora.strip()
+      if not name or name in lora_weights:
+        continue  # we have this one already from the weights parsing (or empty entry)
+      lora_weights[name] = ('lora', '')
+    # we don't have the hashes, but we have the names from the query, so we try that...
+    for name, (_, weights) in lora_weights.items():
+      try:
+        lora_hash = _FindModelHash('lora', '', name, loras)
+      except Error as err:
+        parse_errors[str(err)] = None
+        unknown_lora += 1
+        lora_hash = f'unknown-{unknown_lora}-{name}-nohash'
+      lora_info[lora_hash] = weights
+  elif 'lora' in (info_lower := info_text.lower()) or 'lyco' in info_lower:
+    # there is some lora info we couldn't parse (possibly: could be word like "floral")
+    parse_errors['lora/lyco possible unparsed info'] = None
   # get version
   img_origin: ImageOrigin | None = None
   app_version: str | None = None
@@ -866,14 +953,14 @@ def _ImportImageFile(  # noqa: C901, PLR0912, PLR0914, PLR0915
     try:
       return int(meta_raw.get(key, empty or ('no ' + key)))
     except ValueError as err:
-      parse_errors.append(f'{key}: {err} -> {default}')
+      parse_errors[f'{key}: {err} -> {default}'] = None
       return default
 
   def _FloatKey(key: str, default: int, *, empty: str | None = None, conversion: int = 10) -> int:
     try:
       return round(float(meta_raw.get(key, empty or ('no ' + key))) * conversion)
     except ValueError as err:
-      parse_errors.append(f'{key}: {err} -> {default}')
+      parse_errors[f'{key}: {err} -> {default}'] = None
       return default
 
   def _EnumKey[T: enum.Enum](
@@ -882,7 +969,7 @@ def _ImportImageFile(  # noqa: C901, PLR0912, PLR0914, PLR0915
     try:
       return tp(meta_raw.get(key, empty or ('no ' + key)))
     except ValueError as err:
-      parse_errors.append(f'{key}: {err} -> {default.value if default else "None"}')
+      parse_errors[f'{key}: {err} -> {default.value if default else "None"}'] = None
       return default
 
   # parse a bunch of properties
@@ -916,7 +1003,7 @@ def _ImportImageFile(  # noqa: C901, PLR0912, PLR0914, PLR0915
     or meta_raw.get('denoising strength')  # A1111 would only leave this clue
   ):
     img2img = AIImg2ImgType(
-      init_image_hash=None,  # i think we can never tell unless we did it ourselves
+      input_hash=None,  # i think we can never tell unless we did it ourselves
       denoising=_FloatKey('denoising strength', base.SD_DEFAULT_DENOISING, conversion=100),
     )
   # build the AIMetaType with the parsed and validated properties
@@ -949,12 +1036,13 @@ def _ImportImageFile(  # noqa: C901, PLR0912, PLR0914, PLR0915
     ),
     ngms=_FloatKey('ngms', 0, empty='0', conversion=100) or None,
     cfg_skip=_FloatKey('skip early cfg', 0, empty='0', conversion=100) or None,
+    lora=lora_info,
     img2img=img2img,
   )
   # do more checks; be strict
   # SEED
   if not 0 < ai_meta['seed'] <= base.SD_MAX_SEED:
-    parse_errors.append('`seed` out of bounds')
+    parse_errors['`seed` out of bounds'] = None
   # DIMENSIONS
   meta_width = int(meta_raw.get('width', 'no width'))
   meta_height = int(meta_raw.get('height', 'no height'))
@@ -963,7 +1051,7 @@ def _ImportImageFile(  # noqa: C901, PLR0912, PLR0914, PLR0915
     actual_px: int = width * height
     if meta_px and actual_px and meta_px < actual_px and actual_px / meta_px > 1.5:  # noqa: PLR2004
       # the hallmark of a img->img upscaler: actual >> meta, and a significant difference
-      parse_errors.append('upscaled')
+      parse_errors['upscaled'] = None
     elif (
       meta_width  # noqa: PLR0916
       and meta_height
@@ -976,7 +1064,7 @@ def _ImportImageFile(  # noqa: C901, PLR0912, PLR0914, PLR0915
     ):
       # the hallmark of an image that had its dimensions corrected to be a multiple of 16:
       # meta is not a multiple, but actual is, and they are super close in dimensions
-      parse_errors.append('size corrected / 16')
+      parse_errors['size corrected / 16'] = None
     elif (
       meta_width  # noqa: PLR0916
       and meta_height
@@ -989,19 +1077,19 @@ def _ImportImageFile(  # noqa: C901, PLR0912, PLR0914, PLR0915
     ):
       # the hallmark of an image that had its dimensions corrected to be a multiple of 8:
       # meta is not a multiple, but actual is, and they are super close in dimensions
-      parse_errors.append('size corrected / 8')
+      parse_errors['size corrected / 8'] = None
     else:
       extra_msg: str = '; probably an unfinished image' if meta_px > actual_px else ''
       raise Error(f'Dim error: {meta_width} x {meta_height} / {width} x {height}{extra_msg}')
   # STEPS, CFG SCALE, CFG END, CLIP SKIP
   if not 1 <= ai_meta['steps'] <= base.SD_MAX_ITERATIONS:
-    parse_errors.append('`steps` out of bounds')
+    parse_errors['`steps` out of bounds'] = None
   if not 10 <= ai_meta['cfg_scale'] <= base.SD_MAX_CFG_SCALE:  # noqa: PLR2004
-    parse_errors.append('`cfg_scale` out of bounds')
+    parse_errors['`cfg_scale` out of bounds'] = None
   if not 0 <= ai_meta['cfg_end'] <= 10:  # noqa: PLR2004
-    parse_errors.append('`cfg_end` out of bounds')
+    parse_errors['`cfg_end` out of bounds'] = None
   if not 10 <= ai_meta['clip_skip'] <= base.SD_MAX_CLIP_SKIP:  # noqa: PLR2004
-    parse_errors.append('`clip_skip` out of bounds')
+    parse_errors['`clip_skip` out of bounds'] = None
   # join everything together into the DBImageType
   if parse_errors:
     logging.debug(f'Parsed image metadata with errors: {info_text}, errors: {parse_errors}')
@@ -1017,6 +1105,7 @@ def _ImportImageFile(  # noqa: C901, PLR0912, PLR0914, PLR0915
     created_at=int(img_path.stat().st_mtime),
     origin=img_origin.value if img_origin else ImageOrigin.AIUnknown.value,  # we could parse!
     version=app_version,
+    info=info_text,
     ai_meta=ai_meta,
     sd_info={},
     sd_params=meta_raw,  # type: ignore[typeddict-item]
@@ -1051,12 +1140,22 @@ class APIProtocol(Protocol):
     """
 
   @abstract.abstractmethod
+  def GetLora(self) -> list[AIModelType]:
+    """Get list of available lora/lycoris from SDNext API.
+
+    Returns:
+      A list of AIModelType objects representing the available lora/lycoris. BEWARE: hash will be ''
+
+    Raises:
+      Error: If there is an error with the API call or if the response is invalid.
+
+    """
+
+  @abstract.abstractmethod
   def Txt2Img(
     self, model: AIModelType, meta: AIMetaType, *, dir_root: pathlib.Path | None = None
   ) -> tuple[DBImageType, bytes]:
     """Generate image from text prompt using SDNext API.
-
-    See: <https://github.com/vladmandic/sdnext/blob/master/cli/api-txt2img.py>
 
     Args:
       model: AIModelType object representing the model to use for generation

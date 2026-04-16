@@ -10,7 +10,6 @@ from __future__ import annotations
 import base64
 import copy
 import enum
-import io
 import json
 import logging
 import pathlib
@@ -20,7 +19,6 @@ from typing import cast
 
 import requests
 import urllib3
-from PIL import Image
 from transcrypto.core import hashes
 from transcrypto.utils import base as tbase
 from transcrypto.utils import human, timer
@@ -47,6 +45,7 @@ class Endpoints(enum.Enum):
 
   SYSTEM_STATUS = 'system-info'
   MODELS = 'sd-models'
+  LORA = 'loras'
   OPTIONS = 'options'
   RELOAD_CHECKPOINT = 'reload-checkpoint'
   TXT2IMG = 'txt2img'
@@ -57,10 +56,11 @@ class APICalls(enum.Enum):
 
   STATUS = 1
   MODELS = 2
-  READ_OPTIONS = 3
-  SET_OPTIONS = 4
-  RELOAD_CHECKPOINT = 5
-  TXT2IMG = 6
+  LORA = 3
+  READ_OPTIONS = 4
+  SET_OPTIONS = 5
+  RELOAD_CHECKPOINT = 6
+  TXT2IMG = 7
 
 
 _API_CALL_MATRIX: dict[
@@ -68,7 +68,8 @@ _API_CALL_MATRIX: dict[
 ] = {
   # see <http://127.0.0.1:7860/docs> for details on the API
   APICalls.STATUS: (APIVersions.V2, Endpoints.SYSTEM_STATUS, requests.get),
-  APICalls.MODELS: (APIVersions.V1, Endpoints.MODELS, requests.get),
+  APICalls.MODELS: (APIVersions.V2, Endpoints.MODELS, requests.get),
+  APICalls.LORA: (APIVersions.V1, Endpoints.LORA, requests.get),
   APICalls.READ_OPTIONS: (APIVersions.V2, Endpoints.OPTIONS, requests.get),
   APICalls.SET_OPTIONS: (APIVersions.V2, Endpoints.OPTIONS, requests.post),
   APICalls.RELOAD_CHECKPOINT: (APIVersions.V1, Endpoints.RELOAD_CHECKPOINT, requests.post),
@@ -128,7 +129,9 @@ class API(db.APIProtocol):
 
     """  # noqa: DOC502
     version, endpoint, method = _API_CALL_MATRIX[api_call]
-    return _Call(method, self._api_url, version.value + endpoint.value, payload)
+    return _Call(
+      method, self._api_url, version.value + endpoint.value, payload.copy() if payload else None
+    )
 
   def ServerVersion(self) -> tuple[str, str]:
     """Get SDNext API server version info.
@@ -297,6 +300,26 @@ class API(db.APIProtocol):
   def GetModels(self) -> list[db.AIModelType]:
     """Get list of available models from SDNext API.
 
+    Schema:
+
+    {
+      'items': [
+        {
+          'title': 'SDXL_00_XLB_v10VAEFix [e6bb9ea85b]',
+          'model_name': 'SDXL_00_XLB_v10VAEFix',
+          'filename': '/foo/bar/models/Stable-diffusion/SDXL_00_XLB_v10VAEFix.safetensors',
+          'type': 'safetensors',
+          'hash': 'e6bb9ea85b',
+          'sha256': 'e6bb9ea85bbf7bf6478a7c6d18b71246f22e95d41bcdd80ed40aa212c33cfeff',
+          'size': 6938078334,
+          'mtime': '2023-09-08T18:06:07',
+          'version': '',
+          'subfolder': None,
+        },
+        # ...
+      ],
+    }
+
     Returns:
       A list of AIModelType objects representing the available models. BEWARE: hash may be ''!
 
@@ -305,30 +328,105 @@ class API(db.APIProtocol):
 
     """
     models: tbase.JSONValue = self.Call(APICalls.MODELS)
-    if not isinstance(models, list) or not models:
+    if (
+      not isinstance(models, dict)
+      or not models
+      or 'items' not in models
+      or not isinstance(models['items'], list)
+    ):
       raise Error(f'Invalid models response from SDNext API: {models}')
     # we got a valid response, parse it
     parsed: list[db.AIModelType] = []
-    for model in models:
+    for model in models['items']:
       if not isinstance(model, dict):
         raise Error(f'Invalid model entry in SDNext API response: {model}')
       model_path = pathlib.Path(cast('str', model.get('filename', '')).strip())
       new_model: db.AIModelType = db.AIModelType(
         hash=cast('str', model.get('sha256', '') or '').strip(),
         name=cast('str', model.get('model_name', '') or '').strip(),
+        alias=cast('str', model.get('title', '') or '').strip(),
         path=str(model_path),
-        type=cast('str', model.get('type', '') or '').strip(),
+        model_type=db.ModelType(cast('str', model.get('type', '') or '').strip()).value,
+        function=db.ModelFunction.Model.value,
+        metadata=copy.deepcopy(model.copy()),
         description=None,
       )
       if not model_path.exists():
         raise Error(f'Model file not found for model from SDNext API: {new_model}')
-      if not new_model['name'] or not new_model['type']:
-        raise Error(f'Missing model name or type for model from SDNext API: {new_model}')
+      if not new_model['name']:
+        raise Error(f'Missing model name for model from SDNext API: {new_model}')
       parsed.append(new_model)
     # done, return
     return parsed
 
-  def Txt2Img(  # noqa: C901
+  def GetLora(self) -> list[db.AIModelType]:
+    """Get list of available lora/lycoris from SDNext API.
+
+    Schema:
+
+    [
+      {
+        'name': 'XL-CLR-colorful-fractal',
+        'alias': 'tr03_colorful_04_colorful_fractal',
+        'path': '/foo/bar/models/Lora/XL-CLR-colorful-fractal.safetensors',
+        'metadata': {
+          # ... HUGE JSON, LOTS OF FIELDS, INCLUDING TAG FREQUENCIES, e.g.:
+          'ss_network_module': 'lycoris.kohya',  # or "networks.lora"
+          'ss_tag_frequency': {
+            'img': {
+              'green background': 2,
+              'no humans': 7,
+              'solo': 22,
+              'simple background': 7,
+            },
+          },
+        },
+      },
+    ]
+
+    Returns:
+      A list of AIModelType objects representing the available lora/lycoris. BEWARE: hash will be ''
+
+    Raises:
+      Error: If there is an error with the API call or if the response is invalid.
+
+    """
+    loras: tbase.JSONValue = self.Call(APICalls.LORA)
+    if not isinstance(loras, list) or not loras:
+      raise Error(f'Invalid models response from SDNext API: {loras}')
+    # we got a valid response, parse it
+    parsed: list[db.AIModelType] = []
+    for lora in loras:
+      if not isinstance(lora, dict):
+        raise Error(f'Invalid model entry in SDNext API response: {lora}')
+      lora_path = pathlib.Path(cast('str', lora.get('path', '')).strip())
+      new_lora: db.AIModelType = db.AIModelType(
+        hash='',
+        name=cast('str', lora.get('name', '') or '').strip(),
+        alias=cast('str', lora.get('alias', '') or '').strip(),
+        path=str(lora_path),
+        model_type=db.ModelType(lora_path.suffix.lower()[1:]).value,
+        function=db.ModelFunction.Lora.value,  # start with lora and decide below in metadata
+        metadata=(
+          copy.deepcopy(cast('tbase.JSONDict', lora.get('metadata', {})))
+          if isinstance(lora.get('metadata'), dict)
+          else {}
+        ),
+        description=None,
+      )
+      if not lora_path.exists():
+        raise Error(f'Model file not found for model from SDNext API: {new_lora}')
+      if not new_lora['name']:
+        raise Error(f'Missing model name for model from SDNext API: {new_lora}')
+      ss_network: str = cast('str', new_lora['metadata'].get('ss_network_module', '') or '').lower()
+      if 'lyco' in ss_network:
+        new_lora['function'] = db.ModelFunction.Lycoris.value
+      elif ss_network.strip() and 'lora' not in ss_network:
+        logging.error(f'Unknown `ss_network_module` from SDNext API: {ss_network!r} in {new_lora}')
+    # done, return
+    return parsed
+
+  def Txt2Img(  # noqa: C901, PLR0914
     self, model: db.AIModelType, meta: db.AIMetaType, *, dir_root: pathlib.Path | None = None
   ) -> tuple[db.DBImageType, bytes]:
     """Generate image from text prompt using SDNext API.
@@ -366,7 +464,7 @@ class API(db.APIProtocol):
       "diffusers_guidance_rescale": 0,              ==> CONTEMPLATED
       "pag_scale": 0,
       "pag_adaptive": 0.5,
-      "styles": [
+      "styles": [                                   ==> CONTEMPLATED / FIXED
         "string"
       ],
       "tiling": false,                              ==> CONTEMPLATED / FIXED
@@ -418,7 +516,7 @@ class API(db.APIProtocol):
       "return_mask": true,
       "return_mask_composite": true,
       "keep_incomplete": true,
-      "image_metadata": true,
+      "image_metadata": true,                            ==> CONTEMPLATED / FIXED
       "jpeg_quality": 0,
       "lora_fuse_native": true,
       "lora_fuse_diffusers": true,
@@ -502,7 +600,7 @@ class API(db.APIProtocol):
       "inpaint_full_res_padding": 0,
       "inpainting_mask_invert": 0,
       "overlay_images": "string",
-      "enable_hr": false,
+      "enable_hr": false,                          ==> CONTEMPLATED / FIXED
       "firstphase_width": 0,
       "firstphase_height": 0,
       "hr_scale": 2,
@@ -513,7 +611,7 @@ class API(db.APIProtocol):
       "hr_resize_x": 0,
       "hr_resize_y": 0,
       "hr_denoising_strength": 0,
-      "refiner_steps": 5,
+      "refiner_steps": 5,                          ==> CONTEMPLATED / FIXED
       "hr_upscaler": "string",
       "refiner_start": 0,
       "refiner_prompt": "",
@@ -628,6 +726,19 @@ class API(db.APIProtocol):
       "extra": {}
     }
 
+    # TODO: evaluate these:
+      •	guidance_scale
+      •	guidance_start
+      •	guidance_stop
+      •	schedulers_solver_order
+      •	scheduler_eta
+      •	pag_scale
+      •	pag_adaptive
+      •	freeu_enabled plus freeu_b1/b2/s1/s2
+      •	hypertile_unet_enabled / hypertile_vae_enabled and their params
+      •	teacache_enabled
+      •	token_merging_method, tome_ratio, todo_ratio
+
     Args:
       model: AIModelType object representing the model to use for generation
       meta: AIMetaType object containing the generation metadata (e.g., prompt, steps,
@@ -647,16 +758,19 @@ class API(db.APIProtocol):
       raise Error('img2img is not supported by Txt2Img() call')
     if model['hash'] != meta['model_hash']:
       raise Error(f'Model hash mismatch: expected {meta["model_hash"]}, got {model["hash"]}')
+    if model['function'] != db.ModelFunction.Model.value:
+      raise Error(f'Incompatible model: expected model, got {model}')
+    clip_skip: int = meta['clip_skip'] // 10  # TODO: in future, when accepts float do regular div
     base_options: tbase.JSONDict = {
       # FIXED OPTIONS
-      'clip_skip_enabled': True,
+      'clip_skip_enabled': clip_skip > 1,  # only enable if clip_skip > 1
       'no_half': True,
       'lora_add_hashes_to_infotext': True,
       'lora_in_memory_limit': 3,
       # VARIABLE OPTIONS
       'sd_checkpoint_hash': model['hash'],  # set the model hash to trigger load if needed
       'prompt_attention': meta['parser'],
-      'clip_skip': meta['clip_skip'] // 10,  # TODO: in future, when accepts float do regular div
+      'clip_skip': clip_skip,
       'schedulers_sigma': 'default' if meta['sch_sigma'] is None else meta['sch_sigma'],
       'schedulers_timestep_spacing': (
         'default' if meta['sch_spacing'] is None else meta['sch_spacing']
@@ -687,11 +801,15 @@ class API(db.APIProtocol):
     options: tbase.JSONDict = {
       # FIXED OPTIONS
       'send_images': True,
+      'image_metadata': True,
       'n_iter': 1,
       'batch_size': 1,
       'tiling': False,
       'vae_type': 'Full',  # TODO: see if this should be variable
       'hidiffusion': False,
+      'enable_hr': False,
+      'styles': [],
+      'refiner_steps': 0,
       # VARIABLE OPTIONS
       'save_images': self._server_save_images,
       'sd_model_checkpoint': model['name'],
@@ -704,17 +822,17 @@ class API(db.APIProtocol):
       'width': meta['width'],
       'height': meta['height'],
       'sampler_name': meta['sampler'],
-      'prompt_attention': meta['parser'],
       'cfg_scale': meta['cfg_scale'] / 10,  # remember to divide by 10
       'cfg_end': meta['cfg_end'] / 10,  # remember to divide by 10
       'diffusers_guidance_rescale': meta['cfg_rescale'] / 100,  # remember to divide by 100
-      'clip_skip': meta['clip_skip'] // 10,  # TODO: in future, when accepts float do regular div
-      'schedulers_sigma': 'default' if meta['sch_sigma'] is None else meta['sch_sigma'],
-      'schedulers_timestep_spacing': (
-        'default' if meta['sch_spacing'] is None else meta['sch_spacing']
-      ),
-      'schedulers_beta_schedule': 'default' if meta['sch_beta'] is None else meta['sch_beta'],
-      'schedulers_prediction_type': 'default' if meta['sch_type'] is None else meta['sch_type'],
+      # OPTIONS THAT ARE 1:1 WITH API OPTIONS
+      'prompt_attention': base_options['prompt_attention'],
+      'clip_skip_enabled': base_options['clip_skip_enabled'],
+      'clip_skip': base_options['clip_skip'],
+      'schedulers_sigma': base_options['schedulers_sigma'],
+      'schedulers_timestep_spacing': base_options['schedulers_timestep_spacing'],
+      'schedulers_beta_schedule': base_options['schedulers_beta_schedule'],
+      'schedulers_prediction_type': base_options['schedulers_prediction_type'],
     }
     # make the call to the APIs
     logging.info(f'Generating image with SDNext API, options: {options}')
@@ -731,9 +849,8 @@ class API(db.APIProtocol):
         f'SDNext API, got {meta["width"]}x{meta["height"]}: {data}'
       )
     # extract the data
-    img_data: bytes
-    raw_hash: str
-    img_data, raw_hash = _ExtractImageData(data)
+    img_data, raw_hash, info_text = _ExtractImageData(data)
+    # TODO: inject lora info into meta
     img_hash: str = hashes.Hash256(img_data).hex()
     logging.info(f'Got {human.HumanizedBytes(len(img_data))} image in {tmr_generate}: {img_hash}')
     # if we are going to save the image, figure out the full path
@@ -764,14 +881,15 @@ class API(db.APIProtocol):
       size=len(img_data),
       width=meta['width'],
       height=meta['height'],
-      format=db.ImageFormat.PNG.value,
+      format=base.ImageFormat.PNG.value,
       created_at=tm_created,
       origin=db.ImageOrigin.TransNext.value,
       version=f'{self.version}/{__version__}',  # TransNext version is like '0eb4a98e0/1.0.0'
+      info=info_text,
       ai_meta=copy.deepcopy(meta),
       sd_info=json.loads(cast('str', data['info'])),
       sd_params=cast('tbase.JSONDict', data['parameters']),
-      parse_errors=[],
+      parse_errors={},
     )
     # make sure the model and dimensions are coherent as sanity checks
     if (gen_model := db_image['sd_params']['sd_model_checkpoint']) != model['name']:
@@ -789,14 +907,14 @@ class API(db.APIProtocol):
     return (db_image, img_data)
 
 
-def _ExtractImageData(data: tbase.JSONDict) -> tuple[bytes, str]:
+def _ExtractImageData(data: tbase.JSONDict) -> tuple[bytes, str, str]:
   """Extract and validate image data from SDNext API response.
 
   Args:
     data: JSON response from SDNext API containing the image data and metadata
 
   Returns:
-    A tuple containing the PNG image data as bytes and the computed hash of the raw image data.
+    (PNG image data as bytes, the computed hash of the raw image data, info text from AI)
 
   Raises:
     Error: If the image data is missing, invalid, or does not match the expected format
@@ -817,20 +935,19 @@ def _ExtractImageData(data: tbase.JSONDict) -> tuple[bytes, str]:
   img_data: bytes = base64.b64decode(b64)
   if not img_data:
     raise Error(f'Image data empty from SDNext API: {data}')
-  # open the image so we can do some basic validation
-  with Image.open(io.BytesIO(img_data)) as image:
-    # do some basic validation on the image and metadata, prepare the DB entry for it
-    if image.format != db.ImageFormat.PNG.value:
-      raise Error(f'Expected PNG image from SDNext API, got {image.format}: {data}')
-    if image.width != data['parameters']['width'] or image.height != data['parameters']['height']:  # type: ignore[index,call-overload]
-      raise Error(
-        f'Expected image of size {data["parameters"]["width"]}x{data["parameters"]["height"]} from '  # type: ignore[index,call-overload]
-        f'SDNext API, got {image.width}x{image.height}: {data}'
-      )
-    # compute the hash of the raw image data for the DB entry, this is more format-agnostic
-    raw_hash: str = hashes.Hash256(image.convert('RGBA').tobytes()).hex()
+  # open, do some basic validation on the image and metadata, prepare the DB entry for it
+  fmt, width, height, raw_hash, info_text = base.GetBasicDataFromImage(img_data)
+  if fmt != base.ImageFormat.PNG:
+    raise Error(f'Expected PNG image from SDNext API, got {fmt}: {data}')
+  if not info_text:
+    raise Error(f'No info text found in image metadata from SDNext API: {data}')
+  if width != data['parameters']['width'] or height != data['parameters']['height']:  # type: ignore[index,call-overload]
+    raise Error(
+      f'Expected image of size {data["parameters"]["width"]}x{data["parameters"]["height"]} from '  # type: ignore[index,call-overload]
+      f'SDNext API, got {width}x{height}: {data}'
+    )
   # passed all checks
-  return (img_data, raw_hash)
+  return (img_data, raw_hash, info_text)
 
 
 def _Call(

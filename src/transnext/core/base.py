@@ -1,23 +1,26 @@
 # SPDX-FileCopyrightText: Copyright 2026 Daniel Balparda <balparda@github.com>
 # SPDX-License-Identifier: Apache-2.0
-"""TransNext core base module."""
+"""TransNext core tbase.module."""
 
 from __future__ import annotations
 
 import dataclasses
 import enum
+import io
 import logging
 import os
 import pathlib
 from collections import abc
 
 import typer
+from PIL import Image
 from transcrypto.cli import clibase
 from transcrypto.core import hashes
-from transcrypto.utils import base, saferandom
+from transcrypto.utils import base as tbase
+from transcrypto.utils import saferandom
 
 
-class Error(base.Error):
+class Error(tbase.Error):
   """TransNext base exception."""
 
 
@@ -31,6 +34,21 @@ except ValueError:
   logging.exception(f'Invalid SDAPI_URL environment variable: {SD_URL!r}; falling back to defaults')
 
 MakeURL: abc.Callable[[str, int], str] = lambda host, port: f'{host}:{port}'
+
+
+class ImageFormat(enum.Enum):
+  """Image format enum."""
+
+  JPEG = 'JPEG'
+  PNG = 'PNG'
+  GIF = 'GIF'
+
+
+_PIL_FORMAT_MAP: dict[str, ImageFormat] = {
+  'JPEG': ImageFormat.JPEG,
+  'PNG': ImageFormat.PNG,
+  'GIF': ImageFormat.GIF,
+}
 
 
 class Sampler(enum.Enum):
@@ -188,7 +206,7 @@ SD_MAX_CFG_SCALE: int = 300  # max 30.0 (multiply by 10 for CLI option)
 SD_DEFAULT_CFG_END: int = 8  # default to 0.8 (end at 80% of the steps; multiply by 10)
 SD_DEFAULT_CFG_RESCALE: int = 0  # default to 0.0 (no rescaling; multiply by 100)
 SD_DEFAULT_CLIP_SKIP: int = 10  # default to 1.0 (multiply by 10 for CLI option)
-SD_MAX_CLIP_SKIP: int = 50  # max 5.0 (multiply by 10 for CLI option)
+SD_MAX_CLIP_SKIP: int = 120  # max 12.0 (multiply by 10 for CLI option)
 SD_DEFAULT_QUERY_PARSER: QueryParser = QueryParser.A1111
 SD_DEFAULT_SAMPLER: Sampler = Sampler.DPM_P_SDE
 SD_DEFAULT_DENOISING: int = 50  # IMG2IMG: how much to de-noise 0.5 (multiply by 100 for CLI option)
@@ -452,3 +470,40 @@ def PromptHash(positive: str, negative: str | None = None) -> str:
   if negative is not None:
     hash_str += negative.encode('utf-8')
   return hashes.Hash256(hash_str).hex()[-12:]
+
+
+def GetBasicDataFromImage(img_bytes: bytes) -> tuple[ImageFormat, int, int, str, str | None]:
+  """Get basic data from an image, including format, size, hash, and metadata text.
+
+  Args:
+    img_bytes: The image data as bytes.
+
+  Returns:
+    (format, width, height, hash, metadata_text) where:
+      - format: The image format as an ImageFormat enum.
+      - width: The width of the image in pixels.
+      - height: The height of the image in pixels.
+      - hash: A hash of the image data (SHA256 of RGBA bytes).
+      - metadata_text: The extracted metadata text from the image, if available; otherwise None.
+
+  Raises:
+    Error: If the image format is unsupported or if there are issues processing the image.
+
+  """
+  with Image.open(io.BytesIO(img_bytes)) as img:
+    # make sure format is known
+    fmt: ImageFormat | None = _PIL_FORMAT_MAP.get((img.format or '').upper())
+    if not fmt:
+      raise Error(f'Unsupported image format {img.format!r}')
+    # get the internal data we need (size and hash)
+    width: int = img.width
+    height: int = img.height
+    raw_hash: str = hashes.Hash256(img.convert('RGBA').tobytes()).hex()
+    # try to extract metadata from PNG info tags, either 'parameters' or 'UserComment'
+    info_text: str = ''
+    pil_info: tbase.JSONDict = img.info  # type: ignore[assignment]
+    if 'parameters' in pil_info and isinstance(pil_info['parameters'], str):
+      info_text = pil_info['parameters'].strip()
+    elif 'UserComment' in pil_info and isinstance(pil_info['UserComment'], str):
+      info_text = pil_info['UserComment'].strip()
+  return (fmt, width, height, raw_hash, info_text or None)
