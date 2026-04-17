@@ -66,10 +66,9 @@ def testSyncSuccess(
   mock_db_class.return_value = mock_db_inst
   result: click_testing.Result = _CallCLI(['-vvv', 'sync'])
   assert not result.exit_code
-  mock_db_inst.Sync.assert_called_once()
-  call_kwargs: dict[str, object] = mock_db_inst.Sync.call_args[1]
-  assert call_kwargs['add_dir'] is None
-  assert isinstance(call_kwargs['api'], sdnapi.API)
+  mock_db_inst.Sync.assert_called_once_with(add_dir=None)
+  _, db_kwargs = mock_db_class.call_args
+  assert isinstance(db_kwargs['api'], sdnapi.API)
 
 
 @mock.patch.object(sdnapi.API, 'ServerVersion', return_value=('abc123', '2026-01-01'))
@@ -103,7 +102,9 @@ def testSyncAPIConnectionFailsGracefully(
   mock_db_class.return_value = mock_db_inst
   result: click_testing.Result = _CallCLI(['-vvv', 'sync', '--no-force-api'])
   assert not result.exit_code
-  mock_db_inst.Sync.assert_called_once_with(add_dir=None, api=None)
+  mock_db_inst.Sync.assert_called_once_with(add_dir=None)
+  _, db_kwargs = mock_db_class.call_args
+  assert db_kwargs['api'] is None
 
 
 @mock.patch.object(

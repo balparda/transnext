@@ -13,7 +13,6 @@ from transnext import gen
 from transnext.core import base, db, sdnapi
 
 # ===>>>> TO DEBUG calls: set True and run the CLI command
-
 _DEBUG_RECORD: bool = False
 # the result will be saved here:
 _DEBUG_RECORD_SAVE_PATH: pathlib.Path = pathlib.Path('call_record.json')  # project root! careful!
@@ -108,7 +107,10 @@ def Make(  # documentation is help/epilog/args # noqa: D103
       ),
       api,
     )
-  if _DEBUG_RECORD:
-    api.SaveRecordToFile(_DEBUG_RECORD_SAVE_PATH)
   # DB is closed and saved
   config.console.print()
+  # debug only!
+  if _DEBUG_RECORD:
+    # this is debug only, we don't want tests here!
+    api.SaveRecordToFile(_DEBUG_RECORD_SAVE_PATH)  # pragma: no cover
+    raise click.UsageError('dont forget to set _DEBUG_RECORD to False!')  # pragma: no cover

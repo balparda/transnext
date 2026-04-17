@@ -200,8 +200,8 @@ def testFreeUDefaults() -> None:
   """FreeU default constants have expected int-storage values."""
   assert base.SD_DEFAULT_FREEU_B1 == 105
   assert base.SD_DEFAULT_FREEU_B2 == 110
-  assert base.SD_DEFAULT_FREEU_S1 == 55
-  assert base.SD_DEFAULT_FREEU_S2 == 45
+  assert base.SD_DEFAULT_FREEU_S1 == 75
+  assert base.SD_DEFAULT_FREEU_S2 == 65
 
 
 # ─── TransNextConfig ─────────────────────────────────────────────────────────

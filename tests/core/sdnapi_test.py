@@ -273,6 +273,7 @@ def testCallRoutesToCorrectEndpoint() -> None:
     'http://localhost:7860',
     '/sdapi/v2/sd-models',
     None,
+    record_list=None,
   )
 
 

@@ -1110,10 +1110,10 @@ def testSyncWithAPIRefreshesModels(tmp_path: pathlib.Path) -> None:
   """Sync with API provided refreshes models and lora before scanning."""
   src_dir: pathlib.Path = tmp_path / 'imgs'
   src_dir.mkdir()
-  ai_db = db.AIDatabase(_MakeAppConfig(tmp_path))
   model: db.AIModelType = _MakeModel(h='h1', name='m1', path='/tmp/m.st')  # noqa: S108
   api = _MockAPI(models=[model], loras=[])
-  ai_db.Sync(add_dir=src_dir, api=api)
+  ai_db = db.AIDatabase(_MakeAppConfig(tmp_path), api=api)
+  ai_db.Sync(add_dir=src_dir)
   assert 'h1' in ai_db._db['models']
 
 
