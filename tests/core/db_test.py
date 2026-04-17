@@ -40,14 +40,18 @@ def _MakeMeta(overrides: dict[str, object] | None = None) -> db.AIMetaType:
 def _MakeModel(
   h: str = 'abc123',
   name: str = 'test-model',
+  alias: str = '',
   path: str = '/tmp/model.safetensors',  # noqa: S108
 ) -> db.AIModelType:
   """Create a test AIModelType."""  # noqa: DOC201
   return db.AIModelType(
     hash=h,
     name=name,
+    alias=alias or name,
     path=path,
-    type='safetensors',
+    model_type=db.ModelType.safetensors.value,
+    function=db.ModelFunction.Model.value,
+    metadata={},
     description=None,
   )
 
@@ -68,11 +72,15 @@ def _MakeDBImage(
     size=1024,
     width=512,
     height=512,
-    format=db.ImageFormat.PNG.value,
+    format=base.ImageFormat.PNG.value,
     created_at=1000,
+    origin=None,
+    version=None,
+    info=None,
     ai_meta=meta,
     sd_info={},
     sd_params={},
+    parse_errors={},
   )
 
 
@@ -82,15 +90,20 @@ class _MockAPI:
   def __init__(
     self,
     models: list[db.AIModelType] | None = None,
+    loras: list[db.AIModelType] | None = None,
     txt2img_result: tuple[db.DBImageType, bytes] | None = None,
   ) -> None:
     self.models: list[db.AIModelType] = models or []
+    self.loras: list[db.AIModelType] = loras or []
     self.txt2img_result: tuple[db.DBImageType, bytes] | None = txt2img_result
-    self.load_model_calls: list[str] = []
 
   def GetModels(self) -> list[db.AIModelType]:
     """Return mock models."""  # noqa: DOC201
     return self.models
+
+  def GetLora(self) -> list[db.AIModelType]:
+    """Return mock loras."""  # noqa: DOC201
+    return self.loras
 
   def Txt2Img(
     self,
@@ -110,11 +123,16 @@ class _MockAPI:
 def testDefaults() -> None:
   """Factory creates DB with default values."""
   result: db._DBType = db._DBTypeFactory()
-  assert result['version'] == 0
-  assert result['images'] == {}
-  assert result['models'] == {}
-  assert result['known_image_sources'] == []
-  assert result['image_output_dir'] is None
+  assert result.pop('last_save') > 1000000  # type: ignore[misc]
+  assert result == {
+    'db_version': '1.0.0',
+    'image_output_dir': None,
+    'images': {},
+    'known_image_sources': [],
+    'lora': {},
+    'models': {},
+    'version': 0,
+  }
 
 
 def testOverrides() -> None:
@@ -124,14 +142,32 @@ def testOverrides() -> None:
   assert result['image_output_dir'] == '/foo'
 
 
-# ─── ImageFormat ─────────────────────────────────────────────────────────────
+# ─── ImageOrigin ─────────────────────────────────────────────────────────────
 
 
-def testImageFormatValues() -> None:
-  """ImageFormat enum has correct values."""
-  assert db.ImageFormat.JPEG.value == 'JPEG'
-  assert db.ImageFormat.PNG.value == 'PNG'
-  assert db.ImageFormat.GIF.value == 'GIF'
+def testImageOriginValues() -> None:
+  """ImageOrigin enum has correct values."""
+  assert db.ImageOrigin.A1111.value == 'A1111'
+  assert db.ImageOrigin.SDNext.value == 'SDNext'
+  assert db.ImageOrigin.TransNext.value == 'TransNext'
+  assert db.ImageOrigin.AIUnknown.value == 'AIUnknown'
+
+
+# ─── ModelType / ModelFunction ───────────────────────────────────────────────
+
+
+def testModelTypeValues() -> None:
+  """ModelType enum has correct values."""
+  assert db.ModelType.safetensors.value == 'safetensors'
+  assert db.ModelType.checkpoint.value == 'ckpt'
+  assert db.ModelType.pt.value == 'pt'
+
+
+def testModelFunctionValues() -> None:
+  """ModelFunction enum has correct values."""
+  assert db.ModelFunction.Model.value == 'Model'
+  assert db.ModelFunction.Lora.value == 'Lora'
+  assert db.ModelFunction.Lycoris.value == 'Lycoris'
 
 
 # ─── AIMetaTypeFactory ───────────────────────────────────────────────────────
@@ -140,18 +176,36 @@ def testImageFormatValues() -> None:
 def testDefaultsWithRandomSeed() -> None:
   """Factory creates AIMetaType with a random seed by default."""
   result: db.AIMetaType = db.AIMetaTypeFactory()
-  assert not result['model_hash']
-  assert not result['positive']
-  assert result['negative'] is None
-  assert 1 < result['seed'] <= base.SD_MAX_SEED
-  assert result['width'] == base.SD_DEFAULT_WIDTH
-  assert result['height'] == base.SD_DEFAULT_HEIGHT
-  assert result['steps'] == base.SD_DEFAULT_ITERATIONS
-  assert result['sampler'] == base.SD_DEFAULT_SAMPLER.value
-  assert result['parser'] == base.SD_DEFAULT_QUERY_PARSER.value
-  assert result['cfg_scale'] == base.SD_DEFAULT_CFG_SCALE
-  assert result['cfg_end'] == base.SD_DEFAULT_CFG_END
-  assert result['clip_skip'] == base.SD_DEFAULT_CLIP_SKIP
+  assert 1 < result.pop('seed') <= base.SD_MAX_SEED  # type: ignore[misc]
+  assert result == {
+    'cfg_end': base.SD_DEFAULT_CFG_END,
+    'cfg_rescale': base.SD_DEFAULT_CFG_RESCALE,
+    'cfg_scale': base.SD_DEFAULT_CFG_SCALE,
+    'cfg_skip': None,
+    'clip_skip': base.SD_DEFAULT_CLIP_SKIP,
+    'freeu': (
+      base.SD_DEFAULT_FREEU_B1,
+      base.SD_DEFAULT_FREEU_B2,
+      base.SD_DEFAULT_FREEU_S1,
+      base.SD_DEFAULT_FREEU_S2,
+    ),
+    'height': base.SD_DEFAULT_HEIGHT,
+    'img2img': None,
+    'lora': {},
+    'model_hash': None,
+    'negative': None,
+    'ngms': None,
+    'parser': base.SD_DEFAULT_QUERY_PARSER.value,
+    'positive': '',
+    'sampler': base.SD_DEFAULT_SAMPLER.value,
+    'sch_beta': None,
+    'sch_sigma': None,
+    'sch_spacing': None,
+    'sch_type': None,
+    'steps': base.SD_DEFAULT_ITERATIONS,
+    'v_seed': None,
+    'width': base.SD_DEFAULT_WIDTH,
+  }
 
 
 def testOverridesWithFixedSeed() -> None:
@@ -168,16 +222,37 @@ def testSpecialSeedValuesGenerateRandom(seed_val: int | None) -> None:
   assert 1 < result['seed'] <= base.SD_MAX_SEED
 
 
-def testInvalidSeedRaises() -> None:
-  """Invalid seed value raises Error."""
-  with pytest.raises(db.Error, match='Invalid seed value'):
-    db.AIMetaTypeFactory({'seed': 1})  # must be > 1
-
-
 def testSeedTooLargeRaises() -> None:
   """Seed exceeding SD_MAX_SEED raises Error."""
-  with pytest.raises(db.Error, match='Invalid seed value'):
+  with pytest.raises(db.Error, match=r'Invalid.*seed.*value'):
     db.AIMetaTypeFactory({'seed': base.SD_MAX_SEED + 1})
+
+
+def testVariationSeedAutoGenerated() -> None:
+  """Variation seed with None/0/-1 and strength>0 gets a random seed."""
+  result: db.AIMetaType = db.AIMetaTypeFactory({'v_seed': (0, 50)})
+  assert result['v_seed'] is not None
+  assert result['v_seed'][0] > 0
+  assert result['v_seed'][1] == 50
+
+
+def testVariationSeedInvalidRaises() -> None:
+  """Invalid v_seed value raises Error."""
+  with pytest.raises(db.Error, match=r'Invalid.*v_seed.*value'):
+    db.AIMetaTypeFactory({'v_seed': (base.SD_MAX_SEED + 1, 50)})
+
+
+# ─── AIImg2ImgType ───────────────────────────────────────────────────────────
+
+
+def testAIImg2ImgType() -> None:
+  """AIImg2ImgType can be created with valid fields."""
+  img2img: db.AIImg2ImgType = db.AIImg2ImgType(
+    input_hash='abc123',
+    denoising=50,
+  )
+  assert img2img['input_hash'] == 'abc123'
+  assert img2img['denoising'] == 50
 
 
 # ─── AIDatabase ──────────────────────────────────────────────────────────────
@@ -196,7 +271,6 @@ def testInitExistingDB(tmp_path: pathlib.Path) -> None:
   config: app_config.AppConfig = _MakeAppConfig(tmp_path)
   # save a DB first
   saved_db: db._DBType = db._DBTypeFactory({'version': 3})
-
   config.Serialize(
     cast('tbase.JSONDict', saved_db),
     pickler=key.PickleJSON,
@@ -232,6 +306,169 @@ def testContextManagerException(tmp_path: pathlib.Path) -> None:
   assert not config.path.exists()
 
 
+def testReadOnlyDoesNotSave(tmp_path: pathlib.Path) -> None:
+  """AIDatabase in read-only mode does not write to disk."""
+  config: app_config.AppConfig = _MakeAppConfig(tmp_path)
+  with db.AIDatabase(config, read_only=True):
+    pass
+  assert not config.path.exists()
+
+
+# ─── AIDatabase.output property ──────────────────────────────────────────────
+
+
+def testOutputSetAndGet(tmp_path: pathlib.Path) -> None:
+  """Output property sets and gets directory path."""
+  ai_db = db.AIDatabase(_MakeAppConfig(tmp_path))
+  out_dir: pathlib.Path = tmp_path / 'output'
+  out_dir.mkdir()
+  ai_db.output = out_dir
+  assert ai_db.output == out_dir
+  # also added to known sources
+  assert str(out_dir) in ai_db._db['known_image_sources']
+
+
+def testOutputSetNone(tmp_path: pathlib.Path) -> None:
+  """Setting output to None clears the output directory."""
+  ai_db = db.AIDatabase(_MakeAppConfig(tmp_path))
+  ai_db.output = None
+  assert ai_db.output is None
+
+
+def testOutputSetInvalidRaises(tmp_path: pathlib.Path) -> None:
+  """Setting output to a non-existent directory raises Error."""
+  ai_db = db.AIDatabase(_MakeAppConfig(tmp_path))
+  with pytest.raises(db.Error, match='Invalid output directory'):
+    ai_db.output = tmp_path / 'nonexistent'
+
+
+# ─── AIDatabase.Save ─────────────────────────────────────────────────────────
+
+
+def testSaveIncrementsVersion(tmp_path: pathlib.Path) -> None:
+  """Save increments the DB version."""
+  config: app_config.AppConfig = _MakeAppConfig(tmp_path)
+  ai_db = db.AIDatabase(config)
+  ai_db.Save()
+  ai_db2 = db.AIDatabase(config)
+  assert ai_db2.label.startswith('#1@')
+
+
+def testSafeSaveMismatchRaises(tmp_path: pathlib.Path) -> None:
+  """Safe save raises Error when disk DB differs from loaded DB."""
+  config: app_config.AppConfig = _MakeAppConfig(tmp_path)
+  ai_db = db.AIDatabase(config)
+  ai_db.Save()
+  # modify the DB on disk behind the back of our instance
+  ai_db2 = db.AIDatabase(config)
+  ai_db2.Save()
+  # now the first instance's version is out of date
+  with pytest.raises(db.Error, match='differs from loaded DB'):
+    ai_db.Save()
+
+
+# ─── AIDatabase.RefreshDBModels ──────────────────────────────────────────────
+
+
+def testRefreshDBModels(tmp_path: pathlib.Path) -> None:
+  """RefreshDBModels adds models from API to DB."""
+  ai_db = db.AIDatabase(_MakeAppConfig(tmp_path))
+  model: db.AIModelType = _MakeModel(h='hash1', name='model-1', path='/tmp/m.st')  # noqa: S108
+  api = _MockAPI(models=[model])
+  ai_db.RefreshDBModels(api)
+  assert 'hash1' in ai_db._db['models']
+  assert ai_db._db['models']['hash1']['name'] == 'model-1'
+
+
+def testRefreshDBModelsSkipDuplicatePath(tmp_path: pathlib.Path) -> None:
+  """RefreshDBModels skips models whose path is already in DB."""
+  ai_db = db.AIDatabase(_MakeAppConfig(tmp_path))
+  model: db.AIModelType = _MakeModel(h='hash1', name='model-1')
+  ai_db._db['models']['existing'] = _MakeModel(h='existing', name='existing')
+  # same path
+  api = _MockAPI(models=[model])
+  ai_db.RefreshDBModels(api)
+  # only existing model stays, new one has same path so skipped
+  assert 'existing' in ai_db._db['models']
+
+
+def testRefreshDBModelsEmptyHash(tmp_path: pathlib.Path) -> None:
+  """RefreshDBModels hashes model file when API returns empty hash."""
+  ai_db = db.AIDatabase(_MakeAppConfig(tmp_path))
+  model: db.AIModelType = _MakeModel(h='', name='model-1', path='/tmp/m.st')  # noqa: S108
+  api = _MockAPI(models=[model])
+  with mock.patch('pathlib.Path.read_bytes', return_value=b'model-data'):
+    ai_db.RefreshDBModels(api)
+  # should have been hashed and added
+  assert len(ai_db._db['models']) == 1
+
+
+# ─── AIDatabase.RefreshDBLora ────────────────────────────────────────────────
+
+
+def testRefreshDBLora(tmp_path: pathlib.Path) -> None:
+  """RefreshDBLora adds loras from API to DB."""
+  ai_db = db.AIDatabase(_MakeAppConfig(tmp_path))
+  lora: db.AIModelType = db.AIModelType(
+    hash='l-hash1',
+    name='my-lora',
+    alias='my-lora',
+    path='/tmp/lora.safetensors',  # noqa: S108
+    model_type=db.ModelType.safetensors.value,
+    function=db.ModelFunction.Lora.value,
+    metadata={},
+    description=None,
+  )
+  api = _MockAPI(loras=[lora])
+  ai_db.RefreshDBLora(api)
+  assert 'l-hash1' in ai_db._db['lora']
+
+
+# ─── AIDatabase.GetModelHash ─────────────────────────────────────────────────
+
+
+def testGetModelHashFound(tmp_path: pathlib.Path) -> None:
+  """GetModelHash finds model by name in DB."""
+  ai_db = db.AIDatabase(_MakeAppConfig(tmp_path))
+  model: db.AIModelType = _MakeModel(h='hash1', name='XLB_v10')
+  ai_db._db['models']['hash1'] = model
+  assert ai_db.GetModelHash('xlb_v10') == 'hash1'
+
+
+def testGetModelHashNotFoundNoAPI(tmp_path: pathlib.Path) -> None:
+  """GetModelHash raises Error when not found and no API given."""
+  ai_db = db.AIDatabase(_MakeAppConfig(tmp_path))
+  with pytest.raises(db.Error, match='not found in DB'):
+    ai_db.GetModelHash('nonexistent')
+
+
+def testGetModelHashFetchesFromAPI(tmp_path: pathlib.Path) -> None:
+  """GetModelHash fetches models from API when not found locally."""
+  ai_db = db.AIDatabase(_MakeAppConfig(tmp_path))
+  model: db.AIModelType = _MakeModel(h='hash1', name='XLB_v10', path='/tmp/new.st')  # noqa: S108
+  api = _MockAPI(models=[model])
+  assert ai_db.GetModelHash('xlb_v10', api=api) == 'hash1'
+
+
+def testGetModelHashMultipleMatchRaises(tmp_path: pathlib.Path) -> None:
+  """GetModelHash raises Error when multiple models match."""
+  ai_db = db.AIDatabase(_MakeAppConfig(tmp_path))
+  ai_db._db['models']['h1'] = _MakeModel(h='h1', name='shared-prefix-a')
+  ai_db._db['models']['h2'] = _MakeModel(h='h2', name='shared-prefix-b')
+  with pytest.raises(db.Error, match='Multiple models'):
+    ai_db.GetModelHash('shared-prefix')
+
+
+def testGetModelHashEmptyRaises(tmp_path: pathlib.Path) -> None:
+  """GetModelHash raises Error for empty name."""
+  ai_db = db.AIDatabase(_MakeAppConfig(tmp_path))
+  with pytest.raises(db.Error, match='cannot be empty'):
+    ai_db.GetModelHash('')
+
+
+# ─── AIDatabase.Txt2Img ─────────────────────────────────────────────────────
+
+
 def testTxt2ImgModelNotInDBRaises(tmp_path: pathlib.Path) -> None:
   """Txt2Img raises Error when model hash not in DB."""
   ai_db = db.AIDatabase(_MakeAppConfig(tmp_path))
@@ -263,7 +500,10 @@ def testTxt2ImgExistingImageFileMissing(tmp_path: pathlib.Path) -> None:
   model: db.AIModelType = _MakeModel()
   ai_db._db['models'][model['hash']] = model
   meta: db.AIMetaType = _MakeMeta({'model_hash': model['hash']})
-  db_img: db.DBImageType = _MakeDBImage(meta=meta, path='/tmp/nonexistent.png')  # noqa: S108
+  db_img: db.DBImageType = _MakeDBImage(
+    meta=meta,
+    path='/tmp/nonexistent.png',  # noqa: S108
+  )
   ai_db._db['images']['deadbeef'] = db_img
   # set up API to return new image
   new_img: db.DBImageType = _MakeDBImage(meta=meta, img_hash='new-hash')
@@ -408,7 +648,7 @@ def testParseMetadataEmptyNegative() -> None:
   )
   result: dict[str, str] = db._ParseImageMetadata(text)
   assert result['positive'] == 'poor'
-  assert result['negative'] == ''
+  assert not result['negative']
   assert result['steps'] == '20'
   assert result['width'] == '1000'
   assert result['height'] == '600'
@@ -422,39 +662,16 @@ def testParseMetadataEmptyString() -> None:
   assert 'negative' not in result
 
 
-# ─── _FindModelHash ──────────────────────────────────────────────────────────
+# ─── _ModelsRef ──────────────────────────────────────────────────────────────
 
 
-def testFindModelHashExactMatch() -> None:
-  """Exact hash match in models returns the hash unchanged."""
-  models: set[str] = {'abc123-full-hash'}
-  assert db._FindModelHash('abc123-full-hash', models) == 'abc123-full-hash'
-
-
-def testFindModelHashPrefixMatch() -> None:
-  """Prefix match returns the full model hash."""
-  models: set[str] = {'abc123-full-hash'}
-  assert db._FindModelHash('abc123', models) == 'abc123-full-hash'
-
-
-def testFindModelHashNoMatch() -> None:
-  """No match raises Error."""
-  models: set[str] = {'abc123-full-hash'}
-  with pytest.raises(db.Error, match='not found in DB'):
-    db._FindModelHash('deadbeef', models)
-
-
-def testFindModelHashAmbiguous() -> None:
-  """Ambiguous prefix raises Error."""
-  models: set[str] = {'abc123aaa', 'abc123bbb'}
-  with pytest.raises(db.Error, match='Ambiguous'):
-    db._FindModelHash('abc123', models)
-
-
-def testFindModelHashEmpty() -> None:
-  """Empty hash raises Error."""
-  with pytest.raises(db.Error, match='cannot be empty'):
-    db._FindModelHash('', set())
+def testModelsRef() -> None:
+  """_ModelsRef converts models dict to {hash: 'name alias'} dict."""
+  models: dict[str, db.AIModelType] = {
+    'h1': _MakeModel(h='h1', name='model-1', alias='alias-1'),
+  }
+  result: dict[str, str] = db._ModelsRef(models)
+  assert result == {'h1': 'model-1 alias-1'}
 
 
 # ─── _ImportImageFile ────────────────────────────────────────────────────────
@@ -490,14 +707,22 @@ def testImportImageFilePNGWithMetadata(tmp_path: pathlib.Path) -> None:
   )
   img_path, img_bytes = _MakeTestPNG(tmp_path, params=params)
   img_hash: str = hashes.Hash256(img_bytes).hex()
-  models: set[str] = {'abc123-full-hash'}
-  entry: db.DBImageType = db._ImportImageFile(img_path, img_bytes, img_hash, models)
+  models: dict[str, str] = {'abc123-full-hash': 'mymodel mymodel'}
+  loras: dict[str, str] = {}
+  entry: db.DBImageType = db._ImportImageFile(
+    img_path,
+    img_bytes,
+    img_hash,
+    models,
+    loras,
+  )
   assert entry['hash'] == img_hash
   assert entry['path'] == str(img_path)
   assert entry['width'] == 64
   assert entry['height'] == 64
-  assert entry['format'] == db.ImageFormat.PNG.value
+  assert entry['format'] == base.ImageFormat.PNG.value
   assert entry['size'] == len(img_bytes)
+  assert entry['ai_meta'] is not None
   assert entry['ai_meta']['positive'] == 'a nice photo'
   assert entry['ai_meta']['negative'] == 'ugly'
   assert entry['ai_meta']['steps'] == 20
@@ -507,16 +732,23 @@ def testImportImageFilePNGWithMetadata(tmp_path: pathlib.Path) -> None:
 
 
 def testImportImageFilePNGNoMetadata(tmp_path: pathlib.Path) -> None:
-  """_ImportImageFile raises ValueError when PNG has no embedded metadata."""
+  """_ImportImageFile returns entry with no ai_meta when PNG has no metadata."""
   img_path, img_bytes = _MakeTestPNG(tmp_path)
   img_hash: str = hashes.Hash256(img_bytes).hex()
-  with pytest.raises(ValueError, match=r'invalid literal.*no seed'):
-    db._ImportImageFile(img_path, img_bytes, img_hash, set())
+  entry: db.DBImageType = db._ImportImageFile(
+    img_path,
+    img_bytes,
+    img_hash,
+    {},
+    {},
+  )
+  assert entry['ai_meta'] is None
+  assert entry['origin'] is None
+  assert 'no AI metadata' in entry['parse_errors']
 
 
 def testImportImageFileUnsupportedFormatRaises(tmp_path: pathlib.Path) -> None:
-  """_ImportImageFile raises Error on unsupported image format (GIF not supported)."""
-  # create a BMP image (not in our supported output formats map)
+  """_ImportImageFile raises Error on unsupported image format (BMP)."""
   img: Image.Image = Image.new('RGB', (8, 8), color='red')
   buf = io.BytesIO()
   img.save(buf, format='BMP')
@@ -524,8 +756,8 @@ def testImportImageFileUnsupportedFormatRaises(tmp_path: pathlib.Path) -> None:
   bmp_path: pathlib.Path = tmp_path / 'test.bmp'
   bmp_path.write_bytes(bmp_bytes)
   img_hash: str = hashes.Hash256(bmp_bytes).hex()
-  with pytest.raises(db.Error, match='Unsupported image format'):
-    db._ImportImageFile(bmp_path, bmp_bytes, img_hash, set())
+  with pytest.raises(base.Error, match='Unsupported image format'):
+    db._ImportImageFile(bmp_path, bmp_bytes, img_hash, {}, {})
 
 
 # ─── AIDatabase.Sync ─────────────────────────────────────────────────────────
@@ -577,12 +809,16 @@ def testSyncNewImageImported(tmp_path: pathlib.Path) -> None:
   img_path, img_bytes = _MakeTestPNG(src_dir, params=params)
   img_hash: str = hashes.Hash256(img_bytes).hex()
   ai_db = db.AIDatabase(_MakeAppConfig(tmp_path))
-  # model must be pre-populated so _FindModelHash can resolve the partial 'deadbeef00' hash
-  ai_db._db['models']['deadbeef00'] = _MakeModel(h='deadbeef00', name='my-sdxl-model')
+  # model must be pre-populated so FindModelHash can resolve
+  ai_db._db['models']['deadbeef00'] = _MakeModel(
+    h='deadbeef00',
+    name='my-sdxl-model',
+  )
   ai_db.Sync(add_dir=src_dir)
   assert img_hash in ai_db._db['images']
   entry: db.DBImageType = ai_db._db['images'][img_hash]
   assert entry['path'] == str(img_path)
+  assert entry['ai_meta'] is not None
   assert entry['ai_meta']['positive'] == 'sunset photo'
   assert entry['ai_meta']['negative'] == 'rain'
   assert entry['ai_meta']['seed'] == 777
@@ -638,7 +874,11 @@ def testSyncDeletedImagePathCleared(tmp_path: pathlib.Path) -> None:
   ai_db = db.AIDatabase(_MakeAppConfig(tmp_path))
   missing_path: str = str(tmp_path / 'gone.png')
   meta: db.AIMetaType = _MakeMeta()
-  ai_db._db['images']['deadbeef'] = _MakeDBImage(meta=meta, img_hash='deadbeef', path=missing_path)
+  ai_db._db['images']['deadbeef'] = _MakeDBImage(
+    meta=meta,
+    img_hash='deadbeef',
+    path=missing_path,
+  )
   ai_db.Sync()
   assert ai_db._db['images']['deadbeef']['path'] is None
 
@@ -689,11 +929,21 @@ def testSyncMultipleImagesInDir(tmp_path: pathlib.Path) -> None:
   h1: str = hashes.Hash256(b1).hex()
   h2: str = hashes.Hash256(b2).hex()
   ai_db = db.AIDatabase(_MakeAppConfig(tmp_path))
-  # pre-populate the model so _FindModelHash resolves 'abc1230'
   ai_db._db['models']['abc1230'] = _MakeModel(h='abc1230', name='mymodel')
   ai_db.Sync(add_dir=src_dir)
   assert h1 in ai_db._db['images']
   assert h2 in ai_db._db['images']
+
+
+def testSyncWithAPIRefreshesModels(tmp_path: pathlib.Path) -> None:
+  """Sync with API provided refreshes models and lora before scanning."""
+  src_dir: pathlib.Path = tmp_path / 'imgs'
+  src_dir.mkdir()
+  ai_db = db.AIDatabase(_MakeAppConfig(tmp_path))
+  model: db.AIModelType = _MakeModel(h='h1', name='m1', path='/tmp/m.st')  # noqa: S108
+  api = _MockAPI(models=[model], loras=[])
+  ai_db.Sync(add_dir=src_dir, api=api)
+  assert 'h1' in ai_db._db['models']
 
 
 @pytest.mark.slow
@@ -709,6 +959,9 @@ def testSyncRealImages(tmp_path: pathlib.Path) -> None:
   )
   ai_db._db['models']['442394a51be6bb9ea85b'] = _MakeModel(
     h='442394a51be6bb9ea85b', name='SDXL_13_REF_realisticFreedomSFW_ophelia'
+  )
+  ai_db._db['lora']['a7fc563d7ae966665cc3b'] = _MakeModel(
+    h='a7fc563d7ae966665cc3b', name='XL-CLR-colorful-fractal'
   )
   # point Sync at the real test image directory (tests/data/images/)
   images_dir: pathlib.Path = (pathlib.Path(__file__).parent.parent / 'data' / 'images').resolve()
@@ -727,18 +980,37 @@ def testSyncRealImages(tmp_path: pathlib.Path) -> None:
       'height': 1024,
       'raw_hash': '7847345e5b4687962637c792e890226b08113e9579f7f1d253d1d6efe7f37363',
       'size': 1938975,
+      'info': (
+        'crazy\n'
+        'Steps: 30, Sampler: UniPC, CFG scale: 7.5, Seed: 1884649524, Size: '
+        '1024x1024, Model hash: e6bb9ea85b, Model: SDXL_00_v10VAEFix, RNG: '
+        'CPU, NGMS: 2.5, Version: v1.6.0'
+      ),
+      'origin': 'A1111',
+      'parse_errors': {},
       'ai_meta': {
         'cfg_end': 10,
+        'cfg_rescale': 0,
         'cfg_scale': 75,
+        'cfg_skip': None,
         'clip_skip': 10,
+        'freeu': None,
         'height': 1024,
+        'img2img': None,
+        'lora': {},
         'model_hash': 'e6bb9ea85b1065e7bce3cf03',
         'negative': None,
+        'ngms': 250,
         'parser': 'a1111',
         'positive': 'crazy',
         'sampler': 'UniPC',
+        'sch_beta': None,
+        'sch_sigma': None,
+        'sch_spacing': None,
+        'sch_type': None,
         'seed': 1884649524,
         'steps': 30,
+        'v_seed': None,
         'width': 1024,
       },
       'sd_info': {},
@@ -756,6 +1028,7 @@ def testSyncRealImages(tmp_path: pathlib.Path) -> None:
         'version': 'v1.6.0',
         'width': '1024',
       },
+      'version': 'v1.6.0',
     },
     # ── Image 2: ea94... (spaceship / negative / DPM++ SDE / model dec85dd654) ──
     'ec24329d4bd5b333e39ef923a61a66416d459af84c079ae4606e37a5b88a5985': {
@@ -770,18 +1043,40 @@ def testSyncRealImages(tmp_path: pathlib.Path) -> None:
       'height': 800,
       'raw_hash': '3da9f76cbcc7c4de5a39973e26d09696a1fe1b068d02f12290fe6632a759aec0',
       'size': 519973,
+      'info': (
+        '(spaceship), space, [photograph]\n'
+        'Negative prompt: planet, galaxy\n'
+        'Steps: 30, Size: 800x800, Sampler: DPM++ SDE, Scheduler: '
+        'DPMSolverMultistepScheduler, Seed: 1234321, CFG scale: 8.0, CFG end: '
+        '0.8, App: SD.Next, Version: 0eb4a98, Parser: a1111, Pipeline: '
+        'StableDiffusionXLPipeline, Operations: txt2img, Model: '
+        'SDXL_10_COL_colossusProjectXLSFW_v10bNeodemon, Model hash: dec85dd654'
+      ),
+      'origin': 'SDNext',
+      'parse_errors': {},
       'ai_meta': {
         'cfg_end': 8,
+        'cfg_rescale': 0,
         'cfg_scale': 80,
+        'cfg_skip': None,
         'clip_skip': 10,
+        'freeu': None,
         'height': 800,
+        'img2img': None,
+        'lora': {},
         'model_hash': 'dec85dd6545e07bbd7a0fde6',
         'negative': 'planet, galaxy',
+        'ngms': None,
         'parser': 'a1111',
         'positive': '(spaceship), space, [photograph]',
         'sampler': 'DPM++ SDE',
+        'sch_beta': None,
+        'sch_sigma': None,
+        'sch_spacing': None,
+        'sch_type': None,
         'seed': 1234321,
         'steps': 30,
+        'v_seed': None,
         'width': 800,
       },
       'sd_info': {},
@@ -804,6 +1099,7 @@ def testSyncRealImages(tmp_path: pathlib.Path) -> None:
         'version': '0eb4a98',
         'width': '800',
       },
+      'version': '0eb4a98',
     },
     # ── Image 3: 5a18... (crazy woman face / negative / DPM SDE / model XL-CLR-colorful-fractal) ──
     '5a18babbf7fd09ad6ed7a5334c819d4779958f8b6b9ed8fd9cc3380aa955ee1a': {
@@ -818,21 +1114,51 @@ def testSyncRealImages(tmp_path: pathlib.Path) -> None:
       'width': 800,
       'raw_hash': 'b21477f7c524b621cd508f67e4c2b131b26144ac0866cfa4d73438254dfc7e07',
       'size': 811930,
+      'info': (
+        '((crazy woman face)), [snapshot:photorealistic:0.1], 1960s coloring, colorful fractal\n'
+        '<lora:XL-CLR-colorful-fractal:1.2>\n'
+        'Negative prompt: clown, text, cartoon\n'
+        'Steps: 47, Size: 800x800, Sampler: DPM SDE, Scheduler: '
+        'DPMSolverSDEScheduler, Seed: 666999, CFG scale: 5.4, CFG end: 0.7, '
+        'Clip skip: 1.3, App: SD.Next, Version: 0eb4a98, Parser: a1111, '
+        'Pipeline: StableDiffusionXLPipeline, Operations: txt2img, Model: '
+        'SDXL_13_REF_realisticFreedomSFW_ophelia, Model hash: 442394a51b, '
+        'Variation seed: 777, Variation strength: 0.62, Sampler spacing: '
+        'linspace, Sampler sigma: karras, Sampler type: epsilon, Sampler beta schedule: scaled'
+      ),
+      'origin': 'SDNext',
+      'parse_errors': {},
       'ai_meta': {
         'cfg_end': 7,
+        'cfg_rescale': 0,
         'cfg_scale': 54,
+        'cfg_skip': None,
         'clip_skip': 13,
+        'freeu': None,
         'height': 800,
+        'img2img': None,
+        'lora': {
+          'a7fc563d7ae966665cc3b': '1.2',
+        },
         'model_hash': '442394a51be6bb9ea85b',
         'negative': 'clown, text, cartoon',
+        'ngms': None,
         'parser': 'a1111',
         'positive': (
           '((crazy woman face)), [snapshot:photorealistic:0.1], 1960s coloring, colorful fractal\n'
           '<lora:XL-CLR-colorful-fractal:1.2>'
         ),
         'sampler': 'DPM SDE',
+        'sch_beta': 'scaled',
+        'sch_sigma': 'karras',
+        'sch_spacing': 'linspace',
+        'sch_type': 'epsilon',
         'seed': 666999,
         'steps': 47,
+        'v_seed': (
+          777,
+          62,
+        ),
         'width': 800,
       },
       'sd_info': {},
@@ -865,5 +1191,6 @@ def testSyncRealImages(tmp_path: pathlib.Path) -> None:
         'version': '0eb4a98',
         'width': '800',
       },
+      'version': '0eb4a98',
     },
   }
