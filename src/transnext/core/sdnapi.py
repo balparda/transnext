@@ -933,12 +933,9 @@ class API(db.APIProtocol):
     logging.info(f'Options loaded in SDNext API in {tmr_load}')
     # sanity check some options
     if (
-      meta['width'] <= 0
-      or meta['height'] <= 0
-      or meta['width'] % 16 != 0
-      or meta['height'] % 16 != 0
+      meta['width'] <= 0 or meta['height'] <= 0 or meta['width'] % 8 != 0 or meta['height'] % 8 != 0
     ):
-      raise Error(f'Invalid image dimensions: {meta}')
+      raise Error(f'Invalid image dimensions or not divisible by 8: {meta}')
     if meta['sampler'] in {s.value for s in base.SamplerA1111}:
       raise Error(f'Sampler {meta["sampler"]!r} not supported by SDNext')
     # set the options
@@ -1026,7 +1023,7 @@ class API(db.APIProtocol):
       filename: str = (
         f'{base.PromptHash(meta["positive"], meta["negative"])}-'
         f'{tm_str}-'
-        f'{model["hash"][:8]}-'
+        f'{model["hash"][:10]}-'
         f'{meta["cfg_scale"]}-{meta["steps"]}-'
         f'{meta["width"]}-{meta["height"]}-'
         f'{meta["seed"]}-'

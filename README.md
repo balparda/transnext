@@ -186,7 +186,7 @@ TransNext is a CLI tool for generating AI images using Stable Diffusion SDXL mod
 - A running SDNext server is accessible at the configured host:port
 - The user has filesystem read/write access to the output directory and image source directories
 - Encoding: UTF-8
-- Image dimensions must be multiples of 16 (default: 1024x1024 for SDXL)
+- Image dimensions must be multiples of 8 (default: 1024x1024 for SDXL)
 
 ### Known limitations
 
@@ -284,8 +284,8 @@ gen [global flags] <command> [command flags] [args]
 | `-s`, `--seed` | Random seed (1-18446744073709551615); omit for random | random |
 | `--vseed` | Variation seed (1-18446744073709551615); omit to disable variation | none |
 | `--vstrength` | Variation strength, how much to mix variation seed with base seed (0.0-1.0) | `0.5` |
-| `-w`, `--width` | Image width in pixels (16-4096, must be multiple of 16) | `1024` |
-| `-h`, `--height` | Image height in pixels (16-4096, must be multiple of 16) | `1024` |
+| `-w`, `--width` | Image width in pixels (16-4096, must be multiple of 8) | `1024` |
+| `-h`, `--height` | Image height in pixels (16-4096, must be multiple of 8) | `1024` |
 | `--sampler` | Sampler method (50+ options; e.g., `DPM++ SDE`, `Euler`, `UniPC`, `Heun`, `LCM`, etc.) | `DPM++ SDE` |
 | `--parser` | Query parser: native, compel, xhinker, a1111, fixed | `a1111` |
 | `-m`, `--model` | Model name (substring match against known models) | `XLB_v10` |

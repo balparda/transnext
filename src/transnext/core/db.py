@@ -647,9 +647,21 @@ class AIDatabase:
     if not old_entry['ai_meta']:
       raise Error(f'Image with hash {img_hash} does not have AI metadata, cannot reproduce')
     meta: AIMetaType = copy.deepcopy(old_entry['ai_meta'])
+    logging.info(f'Reproducing image {img_hash!r} with metadata: {meta}')
     # we have the model?
     if meta['model_hash'] not in self._db['models']:
       raise Error(f'Model with hash {meta["model_hash"]} not found in DB models')
+    # show the errors
+    for err in sorted(old_entry['parse_errors']):
+      logging.error(f'Image parsing error: {err}')
+      if err == 'upscaled':
+        raise Error(f'Image upscaled; use original size: {old_entry}')
+    # show lora/lycoris problems
+    for h, w in meta['lora'].items():
+      if h not in self._db['lora']:
+        logging.error(f'Image lora error: missing {h!r}')
+      if '@' in w or ',' in w:
+        logging.error(f'Image lora A1111-style weights: {w!r}')
     # try to reproduce
     new_entry: DBImageType
     img_bytes: bytes
@@ -659,6 +671,10 @@ class AIDatabase:
     self._db['images'][new_entry['hash']] = copy.deepcopy(new_entry)  # add to DB images
     # TODO: add to indexes without raising?
     self._ComputeIndexes()
+    if new_entry['raw_hash'] == old_entry['raw_hash']:
+      logging.info(f'Successful raw match {new_entry["raw_hash"]!r} for reproduction')
+    else:
+      logging.error(f'New image raw {new_entry["raw_hash"]!r} != {old_entry["raw_hash"]!r}')
     return (new_entry, img_bytes)
 
   def Sync(self, *, add_dir: pathlib.Path | str | None = None) -> None:  # noqa: C901, PLR0912, PLR0914, PLR0915
@@ -1144,19 +1160,6 @@ def _ImportImageFile(  # noqa: C901, PLR0912, PLR0914, PLR0915
     if meta_px and actual_px and meta_px < actual_px and actual_px / meta_px > 1.5:  # noqa: PLR2004
       # the hallmark of a img->img upscaler: actual >> meta, and a significant difference
       parse_errors['upscaled'] = None
-    elif (
-      meta_width  # noqa: PLR0916
-      and meta_height
-      and (meta_width % 16 or meta_height % 16)
-      and not width % 16
-      and not height % 16
-      and actual_px
-      and meta_px > actual_px
-      and meta_px / actual_px < 1.1  # noqa: PLR2004
-    ):
-      # the hallmark of an image that had its dimensions corrected to be a multiple of 16:
-      # meta is not a multiple, but actual is, and they are super close in dimensions
-      parse_errors['size corrected / 16'] = None
     elif (
       meta_width  # noqa: PLR0916
       and meta_height

@@ -355,7 +355,7 @@ SD_WIDTH_OPTION: typer.models.OptionInfo = typer.Option(
   '--width',
   min=16,
   max=4096,
-  help=f'Width of the generated image; 16 ≤ i ≤ 4096; default: {SD_DEFAULT_WIDTH}',
+  help=f'Width of the generated image; 16 ≤ i ≤ 4096, multiple of 8; default: {SD_DEFAULT_WIDTH}',
 )
 SD_HEIGHT_OPTION: typer.models.OptionInfo = typer.Option(
   SD_DEFAULT_HEIGHT,
@@ -363,7 +363,7 @@ SD_HEIGHT_OPTION: typer.models.OptionInfo = typer.Option(
   '--height',
   min=16,
   max=4096,
-  help=f'Height of the generated image; 16 ≤ i ≤ 4096; default: {SD_DEFAULT_HEIGHT}',
+  help=f'Height of the generated image; 16 ≤ i ≤ 4096, multiple of 8; default: {SD_DEFAULT_HEIGHT}',
 )
 
 SD_SAMPLER_OPTION: typer.models.OptionInfo = typer.Option(

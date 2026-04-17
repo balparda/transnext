@@ -99,4 +99,8 @@ def Markdown(*, ctx: click.Context) -> None:  # documentation is help/epilog/arg
 
 
 # Import CLI modules to register their commands with the app
-from transnext.cli import make, sync  # pyright: ignore[reportUnusedImport] # noqa: E402, F401
+from transnext.cli import (  # noqa: E402
+  make,  # pyright: ignore[reportUnusedImport] # noqa: F401
+  reproduce,  # pyright: ignore[reportUnusedImport] # noqa: F401
+  sync,  # pyright: ignore[reportUnusedImport] # noqa: F401
+)
