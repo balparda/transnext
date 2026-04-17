@@ -249,6 +249,15 @@ poetry run gen sync ~/foo/bar/new/dir     # add a new directory and sync everyth
 
 Sync scans all known image directories, detects new and deleted images, parses embedded SDNext/A1111 metadata from PNGs, tracks duplicates (same hash at multiple paths), and updates the database.
 
+#### Reproduce an existing image
+
+```sh
+poetry run gen reproduce abc123def456              # reproduce by image hash
+poetry run gen reproduce ~/foo/bar/image.png       # reproduce by file path (resolved to hash via DB)
+```
+
+Looks up the image by hash (or resolves a path to its hash), then calls the SDNext API again with the exact same generation parameters stored in the DB. The reproduced image is stored as a new entry in the database. Requires DB access (`--db`).
+
 #### Generate CLI documentation
 
 ```sh
@@ -303,6 +312,15 @@ gen [global flags] <command> [command flags] [args]
 | `--s1` | FreeU s1 skip feature scale (0.0-3.0) | `0.55` |
 | `--s2` | FreeU s2 skip feature scale (0.0-3.0) | `0.45` |
 | `--backup`/`--no-backup` | Also save a backup on the SDNext server | `--no-backup` |
+
+### `reproduce` command
+
+| Argument/Flag | Description | Default |
+| --- | --- | --- |
+| (argument) `HASH_OR_PATH` | Image hash (hex string) or file path to reproduce (required) | — |
+| `--backup`/`--no-backup` | Also save a backup on the SDNext server | `--no-backup` |
+
+Requires `--db` (the default); will fail with `--no-db`.
 
 ### `sync` command
 
@@ -372,8 +390,9 @@ TransNext uses Python's standard `logging` module with Rich formatting:
 
 ```txt
 CLI (Typer)  ->  gen.py (Main callback + config)
-                   |-- cli/make.py  ->  core/db.py (AIDatabase.Txt2Img)  ->  core/sdnapi.py (API.Txt2Img)
-                   +-- cli/sync.py  ->  core/db.py (AIDatabase.Sync)     ->  filesystem scan + metadata parse
+                   |-- cli/make.py       ->  core/db.py (AIDatabase.Txt2Img)    ->  core/sdnapi.py (API.Txt2Img)
+                   |-- cli/reproduce.py  ->  core/db.py (AIDatabase.Reproduce)  ->  core/sdnapi.py (API.Txt2Img)
+                   +-- cli/sync.py       ->  core/db.py (AIDatabase.Sync)       ->  filesystem scan + metadata parse
 ```
 
 The CLI layer (`gen.py` + `cli/`) handles argument parsing and wiring. The core layer (`core/`) contains all business logic: the database (`db.py`), API client (`sdnapi.py`), and shared constants/types (`base.py`).
@@ -384,6 +403,7 @@ The CLI layer (`gen.py` + `cli/`) handles argument parsing and wiring. The core 
 | --- | --- |
 | `gen.py` | Typer app definition, global callback, `GenConfig` dataclass, `markdown` command |
 | `cli/make.py` | `make` command — image generation via SDNext API |
+| `cli/reproduce.py` | `reproduce` command — re-generate an existing DB image by hash or path |
 | `cli/sync.py` | `sync` command — directory scanning and DB import |
 | `core/base.py` | Constants, enums (`Sampler`, `QueryParser`), CLI option definitions, `TransNextConfig` base class |
 | `core/db.py` | `AIDatabase` class, TypedDict schemas (`DBImageType`, `AIMetaType`, `AIModelType`), image import/metadata parsing |
@@ -413,6 +433,17 @@ The CLI layer (`gen.py` + `cli/`) handles argument parsing and wiring. The core 
    - If new: open with PIL, extract SDNext/A1111 metadata from PNG info tags, parse metadata, create `DBImageType`, add to DB
 5. Check for deleted paths (paths in DB that no longer exist on disk) and clean up
 6. Save DB
+
+#### Image reproduce (`reproduce`)
+
+1. Parse CLI args, create `GenConfig`
+2. Open `sdnapi.API` connection to SDNext server
+3. Open `AIDatabase` (load encrypted DB file; requires `--db`)
+4. If a file path was given, resolve it to an image hash via the DB path index
+5. Look up the existing `DBImageType` entry by hash and retrieve its `AIMetaType`
+6. Verify the model referenced in `AIMetaType` is still in the DB
+7. Call SDNext `/sdapi/v1/txt2img` with the exact same `AIMetaType` parameters
+8. Store the new `DBImageType` entry in DB, save DB
 
 ### Error handling
 
@@ -466,6 +497,7 @@ The CLI layer (`gen.py` + `cli/`) handles argument parsing and wiring. The core 
 │       ├── cli/
 │       │   ├── __init__.py
 │       │   ├── make.py           ⟸ `gen make` command (image generation)
+│       │   ├── reproduce.py      ⟸ `gen reproduce` command (re-generate image by hash/path)
 │       │   └── sync.py           ⟸ `gen sync` command (directory sync)
 │       ├── core/
 │       │   ├── __init__.py

@@ -1426,3 +1426,108 @@ def testSyncRealImages(tmp_path: pathlib.Path) -> None:
       'width': 512,
     },
   }
+
+
+# ─── AIDatabase.Reproduce ────────────────────────────────────────────────────
+
+
+def testReproduceHashNotFoundRaises(tmp_path: pathlib.Path) -> None:
+  """Reproduce raises Error when image hash is not in DB."""
+  ai_db = db.AIDatabase(_MakeAppConfig(tmp_path))
+  api = _MockAPI()
+  with pytest.raises(db.Error, match='not found in DB'):
+    ai_db.Reproduce('nonexistent-hash', api)
+
+
+def testReproduceNoAIMetaRaises(tmp_path: pathlib.Path) -> None:
+  """Reproduce raises Error when the DB entry has no AI metadata."""
+  ai_db = db.AIDatabase(_MakeAppConfig(tmp_path))
+  entry: db.DBImageType = _MakeDBImage(img_hash='img-hash', path=None)
+  entry['ai_meta'] = None  # type: ignore[typeddict-item]
+  ai_db._db['images']['img-hash'] = entry
+  api = _MockAPI()
+  with pytest.raises(db.Error, match='does not have AI metadata'):
+    ai_db.Reproduce('img-hash', api)
+
+
+def testReproduceModelNotInDBRaises(tmp_path: pathlib.Path) -> None:
+  """Reproduce raises Error when the model referenced in ai_meta is not in DB models."""
+  ai_db = db.AIDatabase(_MakeAppConfig(tmp_path))
+  meta: db.AIMetaType = _MakeMeta({'model_hash': 'missing-model'})
+  entry: db.DBImageType = _MakeDBImage(meta=meta, img_hash='img-hash')
+  ai_db._db['images']['img-hash'] = entry
+  api = _MockAPI()
+  with pytest.raises(db.Error, match=r'missing-model.*not found in DB models'):
+    ai_db.Reproduce('img-hash', api)
+
+
+def testReproduceUpscaledParseErrorRaises(tmp_path: pathlib.Path) -> None:
+  """Reproduce raises Error when image has an 'upscaled' parse error."""
+  ai_db = db.AIDatabase(_MakeAppConfig(tmp_path))
+  model: db.AIModelType = _MakeModel()
+  ai_db._db['models'][model['hash']] = model
+  meta: db.AIMetaType = _MakeMeta({'model_hash': model['hash']})
+  entry: db.DBImageType = _MakeDBImage(meta=meta, img_hash='img-hash')
+  entry['parse_errors'] = {'upscaled': None}
+  ai_db._db['images']['img-hash'] = entry
+  api = _MockAPI()
+  with pytest.raises(db.Error, match='upscaled'):
+    ai_db.Reproduce('img-hash', api)
+
+
+def testReproduceSuccess(tmp_path: pathlib.Path) -> None:
+  """Reproduce calls API.Txt2Img with original meta and adds result to DB."""
+  ai_db = db.AIDatabase(_MakeAppConfig(tmp_path))
+  model: db.AIModelType = _MakeModel()
+  ai_db._db['models'][model['hash']] = model
+  meta: db.AIMetaType = _MakeMeta({'model_hash': model['hash']})
+  original_entry: db.DBImageType = _MakeDBImage(meta=meta, img_hash='original-hash')
+  ai_db._db['images']['original-hash'] = original_entry
+  # API will return a distinct "new" image
+  new_entry: db.DBImageType = _MakeDBImage(
+    meta=meta,
+    img_hash='new-hash',
+    path='/tmp/new.png',  # noqa: S108
+  )
+  new_entry['raw_hash'] = 'different-raw-hash'
+  api = _MockAPI(txt2img_result=(new_entry, b'new-bytes'))
+  result_entry, result_bytes = ai_db.Reproduce('original-hash', api)
+  assert result_entry['hash'] == 'new-hash'
+  assert result_bytes == b'new-bytes'
+  assert 'new-hash' in ai_db._db['images']
+
+
+def testReproduceSuccessRawHashMatch(tmp_path: pathlib.Path) -> None:
+  """Reproduce logs a successful match when new raw hash equals the original's raw hash."""
+  ai_db = db.AIDatabase(_MakeAppConfig(tmp_path))
+  model: db.AIModelType = _MakeModel()
+  ai_db._db['models'][model['hash']] = model
+  meta: db.AIMetaType = _MakeMeta({'model_hash': model['hash']})
+  original_entry: db.DBImageType = _MakeDBImage(meta=meta, img_hash='original-hash')
+  original_entry['raw_hash'] = 'same-raw-hash'
+  ai_db._db['images']['original-hash'] = original_entry
+  # API returns a new image with the SAME raw hash — successful reproduction
+  new_entry: db.DBImageType = _MakeDBImage(meta=meta, img_hash='new-hash', path='/tmp/new.png')  # noqa: S108
+  new_entry['raw_hash'] = 'same-raw-hash'
+  api = _MockAPI(txt2img_result=(new_entry, b'bytes'))
+  result_entry, _ = ai_db.Reproduce('original-hash', api)
+  assert result_entry['hash'] == 'new-hash'
+  assert 'new-hash' in ai_db._db['images']
+
+
+def testReproduceWithLoraWarnings(tmp_path: pathlib.Path) -> None:
+  """Reproduce logs warnings for loras with missing hashes or A1111-style weight strings."""
+  ai_db = db.AIDatabase(_MakeAppConfig(tmp_path))
+  model: db.AIModelType = _MakeModel()
+  ai_db._db['models'][model['hash']] = model
+  # lora entry: missing from db['lora'] and uses A1111-style comma-separated weight
+  meta: db.AIMetaType = _MakeMeta(
+    {'model_hash': model['hash'], 'lora': {'missing-lora-hash': 'lora_name:0.8,extra'}}
+  )
+  entry: db.DBImageType = _MakeDBImage(meta=meta, img_hash='img-hash')
+  ai_db._db['images']['img-hash'] = entry
+  new_entry: db.DBImageType = _MakeDBImage(meta=meta, img_hash='new-hash', path='/tmp/new.png')  # noqa: S108
+  api = _MockAPI(txt2img_result=(new_entry, b'bytes'))
+  # should not raise; just logs errors
+  result_entry, _ = ai_db.Reproduce('img-hash', api)
+  assert result_entry['hash'] == 'new-hash'
