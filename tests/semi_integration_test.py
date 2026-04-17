@@ -110,27 +110,30 @@ def _MakeCallReplay(
   call_index: list[int] = [0]  # mutable counter for closure
 
   def _replay(
-    _method: object,
-    _sd_url: str,
-    _endpoint: str,
-    _payload: tbase.JSONDict | None = None,
+    method: object,
+    sd_url: str,
+    endpoint: str,
+    payload: tbase.JSONDict | None = None,
     *,
     record_list: list[tbase.JSONDict] | None = None,  # noqa: ARG001
   ) -> tbase.JSONValue:
-    """Return the next recorded response, advancing the counter.
+    """Replay the next recorded _Call() response, asserting the inputs match.
+
+    Verifies that the method, full URL, and payload exactly match the recorded
+    call before returning the recorded response.
 
     Args:
-      _method: ignored (the HTTP method function).
-      _sd_url: ignored (the base URL).
-      _endpoint: ignored (the API endpoint).
-      _payload: ignored (the JSON payload).
-      record_list: ignored (recording list).
+      method: the HTTP method function (e.g. requests.get / requests.post).
+      sd_url: the base URL passed to _Call().
+      endpoint: the API endpoint path passed to _Call().
+      payload: the JSON payload passed to _Call(), or None.
+      record_list: ignored (recording list, not used during replay).
 
     Returns:
-      tbase.JSONValue: The recorded response.
+      tbase.JSONValue: The recorded response for this call index.
 
     Raises:
-      IndexError: If all recorded responses have been consumed.
+      IndexError: if more calls are made than recorded.
 
     """
     idx: int = call_index[0]
@@ -139,7 +142,27 @@ def _MakeCallReplay(
         f'Semi-integration replay exhausted: '
         f'expected at most {len(records)} calls, got call #{idx + 1}'
       )
-    response: tbase.JSONValue = (records[idx]['response'],)
+    recorded_call: tbase.JSONDict = cast('tbase.JSONDict', records[idx]['call'])
+    # verify method
+    expected_method: str = cast('str', recorded_call['method'])
+    actual_method: str = cast('abc.Callable[..., object]', method).__name__.upper()
+    assert actual_method == expected_method, (
+      f'Call #{idx}: expected method {expected_method!r}, got {actual_method!r}'
+    )
+    # verify full URL
+    expected_url: str = cast('str', recorded_call['url'])
+    actual_url: str = f'{sd_url}{endpoint}'
+    assert actual_url == expected_url, (
+      f'Call #{idx}: expected URL {expected_url!r}, got {actual_url!r}'
+    )
+    # verify payload
+    expected_payload: tbase.JSONDict | None = cast(
+      'tbase.JSONDict | None', recorded_call['payload']
+    )
+    assert payload == expected_payload, (
+      f'Call #{idx}: expected payload {expected_payload!r}, got {payload!r}'
+    )
+    response: tbase.JSONValue = records[idx]['response']
     call_index[0] += 1
     return response
 
