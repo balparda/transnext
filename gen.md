@@ -6,7 +6,7 @@
 ```text
 Usage: gen [OPTIONS] COMMAND [ARGS]...                                                                                                                    
                                                                                                                                                            
- MyCLI does amazing things!                                                                                                                                
+ TransNext: SDXL helper, searcher, maker, based on SDNext API.                                                                                             
                                                                                                                                                            
 ╭─ Options ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
 │ --version                                                            Show version and exit.                                                             │
@@ -34,6 +34,22 @@ Usage: gen [OPTIONS] COMMAND [ARGS]...
 │ reproduce  Reproduce an existing DB image by hash or file path.                                                                                         │
 │ sync       Go over all known image dirs, check for new/deleted images, update DB accordingly.                                                           │
 ╰─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+                                                                                                                                                           
+ Example:                                                                                                                                                  
+                                                                                                                                                           
+ # --- Generating Images ---                                                                                                                               
+ poetry run gen -vv --out ~/foo/bar make "dark knight" -n batman --cfg 7.5 -m SDXL_model_1234 -i 30 --sampler "Euler a"                                    
+                                                                                                                                                           
+ # --- Reproducing an Image ---                                                                                                                            
+ poetry run gen reproduce abc123def456                                                                                                                     
+ poetry run gen reproduce ~/foo/bar/image.png                                                                                                              
+                                                                                                                                                           
+ # --- Syncing the DB ---                                                                                                                                  
+ poetry run gen sync                                                                                                                                       
+ poetry run gen sync ~/foo/bar/new/dir                                                                                                                     
+                                                                                                                                                           
+ # --- Emitting CLI Markdown Docs ---                                                                                                                      
+ poetry run gen markdown > gen.md
 ```
 
 ## `gen make` Command

@@ -44,4 +44,4 @@ Initial release.
 - Model/LoRA/LyCORIS inventory management from SDNext API with hash-based lookup and substring name search
 - Real test images in `tests/data/images/` for end-to-end metadata parsing validation
 - `gen reproduce` command to re-generate an existing DB image by its SHA-256 hash or original file path, preserving all original generation parameters (model, prompt, seed, sampler, etc.)
-- 198 unit tests across 7 test files (3217+ LOC): `base_test.py` (46), `db_test.py` (72), `sdnapi_test.py` (58), `make_test.py` (8), `sync_test.py` (5), `reproduce_test.py` (7), `gen_test.py` (4)
+- 181 unit tests across 8 test files (3217+ LOC): `base_test.py` (31), `db_test.py` (67), `sdnapi_test.py` (55), `make_test.py` (9), `sync_test.py` (5), `reproduce_test.py` (7), `gen_test.py` (4), `semi_integration_test.py` (1)

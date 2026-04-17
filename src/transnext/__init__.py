@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: Copyright 2026 Daniel Balparda <balparda@github.com>
 # SPDX-License-Identifier: Apache-2.0
-"""<Module name / short purpose>."""
+"""TransNext: SDXL helper, searcher, maker, based on SDNext API."""
 
 __all__: list[str] = ['__author__', '__version__']
 __version__ = '1.0.0'  # also update pyproject.toml

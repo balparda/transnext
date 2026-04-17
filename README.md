@@ -37,10 +37,12 @@ Since version 1.0.0 it is a PyPI package: <https://pypi.org/project/transnext/>
     - [Common workflows](#common-workflows)
       - [Generate an image](#generate-an-image)
       - [Sync images from directories](#sync-images-from-directories)
+      - [Reproduce an existing image](#reproduce-an-existing-image)
       - [Generate CLI documentation](#generate-cli-documentation)
     - [Command structure](#command-structure)
     - [Global flags](#global-flags)
     - [`make` command flags](#make-command-flags)
+    - [`reproduce` command](#reproduce-command)
     - [`sync` command](#sync-command)
     - [CLI Commands Documentation](#cli-commands-documentation)
     - [Configuration](#configuration)
@@ -55,6 +57,7 @@ Since version 1.0.0 it is a PyPI package: <https://pypi.org/project/transnext/>
     - [Data flow](#data-flow)
       - [Image generation (`make`)](#image-generation-make)
       - [Image sync (`sync`)](#image-sync-sync)
+      - [Image reproduce (`reproduce`)](#image-reproduce-reproduce)
     - [Error handling](#error-handling)
     - [Security model](#security-model)
   - [Development Instructions](#development-instructions)
@@ -309,8 +312,8 @@ gen [global flags] <command> [command flags] [args]
 | `--freeu`/`--no-freeu` | Enable/disable FreeU backbone and skip feature scaling | `--freeu` |
 | `--b1` | FreeU b1 backbone feature scale (0.0-3.0) | `1.05` |
 | `--b2` | FreeU b2 backbone feature scale (0.0-3.0) | `1.1` |
-| `--s1` | FreeU s1 skip feature scale (0.0-3.0) | `0.55` |
-| `--s2` | FreeU s2 skip feature scale (0.0-3.0) | `0.45` |
+| `--s1` | FreeU s1 skip feature scale (0.0-3.0) | `0.75` |
+| `--s2` | FreeU s2 skip feature scale (0.0-3.0) | `0.65` |
 | `--backup`/`--no-backup` | Also save a backup on the SDNext server | `--no-backup` |
 
 ### `reproduce` command
@@ -651,8 +654,6 @@ poetry run gen sync ~/existing/images
 ```
 
 ### Testing
-
-The test suite has 186 unit tests across 6 test files. Real PNG test images with embedded SDNext/A1111 metadata live in `tests/data/images/` for end-to-end parsing validation.
 
 #### Unit tests / Coverage
 

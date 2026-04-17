@@ -25,7 +25,27 @@ class GenConfig(base.TransNextConfig):
 
 
 # CLI app setup, this is an important object and can be imported elsewhere and called
-app = typer.Typer(add_completion=True, no_args_is_help=True, help='MyCLI does amazing things!')
+app = typer.Typer(
+  add_completion=True,
+  no_args_is_help=True,
+  help=(  # keep in sync with Main().help
+    'TransNext: SDXL helper, searcher, maker, based on SDNext API.'
+  ),
+  epilog=(
+    'Example:\n\n\n\n'
+    '# --- Generating Images ---\n\n'
+    'poetry run gen -vv --out ~/foo/bar make "dark knight" -n batman '
+    '--cfg 7.5 -m SDXL_model_1234 -i 30 --sampler "Euler a"\n\n\n\n'
+    '# --- Reproducing an Image ---\n\n'
+    'poetry run gen reproduce abc123def456\n\n'
+    'poetry run gen reproduce ~/foo/bar/image.png\n\n\n\n'
+    '# --- Syncing the DB ---\n\n'
+    'poetry run gen sync\n\n'
+    'poetry run gen sync ~/foo/bar/new/dir\n\n\n\n'
+    '# --- Emitting CLI Markdown Docs ---\n\n'
+    'poetry run gen markdown > gen.md'
+  ),
+)
 
 
 def Run() -> None:
@@ -33,7 +53,12 @@ def Run() -> None:
   app()
 
 
-@app.callback(invoke_without_command=True)  # have only one; this is the "constructor"
+@app.callback(
+  invoke_without_command=True,
+  help=(  # keep in sync with app.help
+    'TransNext: SDXL helper, searcher, maker, based on SDNext API.'
+  ),
+)  # have only one; this is the "constructor"
 @clibase.CLIErrorGuard
 def Main(  # documentation is help/epilog/args # noqa: D103
   *,

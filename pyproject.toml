@@ -26,10 +26,12 @@ keywords = [
   "poetry",
   "typer",
   "rich",
-  "transcrypto",
-  "crypto",
+  "stable-diffusion",
+  "sdnext",
+  "sdxl",
+  "ai",
+  "image-generation",
   "cli",
-  "template",
 ]
 classifiers = [  # see: https://pypi.org/classifiers/
   "Programming Language :: Python :: 3",
