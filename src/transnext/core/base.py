@@ -527,6 +527,28 @@ def PromptHash(positive: str, negative: str | None = None) -> str:
   return hashes.Hash256(hash_str).hex()[-12:]
 
 
+def GetFileCreation(path: pathlib.Path) -> int:
+  """Get the file creation time as an integer timestamp.
+
+  `st_birthtime` is available on some platforms (e.g., macOS), but not on others (e.g., Linux), so
+  we fall back to `st_mtime` if `st_birthtime` is not available.
+
+  Args:
+    path: The path to the file.
+
+  Returns:
+    The file creation time as an integer timestamp.
+
+  Raises:
+    Error: If the file does not exist
+
+  """
+  if not path.exists():
+    raise Error(f'File not found: {path}')
+  stat_result: os.stat_result = path.stat()
+  return int(getattr(stat_result, 'st_birthtime', stat_result.st_mtime))
+
+
 def GetBasicDataFromImage(img_bytes: bytes) -> tuple[ImageFormat, int, int, str, str | None]:
   """Get basic data from an image, including format, size, hash, and metadata text.
 

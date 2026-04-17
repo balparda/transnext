@@ -282,6 +282,7 @@ _MAKE_CLI_ARGS: list[str] = [
 # ─── test ─────────────────────────────────────────────────────────────────────
 
 
+@pytest.mark.slow
 @mock.patch('transnext.core.sdnapi._Call')
 @mock.patch('transcrypto.utils.timer.Now', return_value=_FIXED_TIMESTAMP)
 @mock.patch('transcrypto.utils.config.InitConfig')

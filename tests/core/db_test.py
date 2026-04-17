@@ -1136,7 +1136,8 @@ def testSyncRealImages(tmp_path: pathlib.Path) -> None:
   )
   # point Sync at the real test image directory (tests/data/images/)
   images_dir: pathlib.Path = (pathlib.Path(__file__).parent.parent / 'data' / 'images').resolve()
-  ai_db.Sync(add_dir=images_dir)
+  with mock.patch('transnext.core.base.GetFileCreation', return_value=1700666999):
+    ai_db.Sync(add_dir=images_dir)
   assert ai_db._db['images'] == {
     # ── Image 1: 20231116... (crazy / no negative / UniPC / model e6bb9ea85b) ──
     '7b35463de957335e3841b6d9742c6bed706212ce87851f7c3ca93fe268544f4d': {
@@ -1145,7 +1146,7 @@ def testSyncRealImages(tmp_path: pathlib.Path) -> None:
         images_dir / '20231116184540-Me6bb9ea85b-Pf4804c3f-C7.5-N30-1884649524-a3fffc692a94bfca.png'
       ),
       'alt_path': [],
-      'created_at': 1700211967,
+      'created_at': 1700666999,
       'format': 'PNG',
       'width': 1024,
       'height': 1024,
@@ -1207,7 +1208,7 @@ def testSyncRealImages(tmp_path: pathlib.Path) -> None:
         images_dir / 'ea94a595ace8-20260413105628-dec85dd6-80-30-800-800-1234321-ec24329d4bd5.png'
       ),
       'alt_path': [],
-      'created_at': 1776077788,
+      'created_at': 1700666999,
       'format': 'PNG',
       'width': 800,
       'height': 800,
@@ -1277,7 +1278,7 @@ def testSyncRealImages(tmp_path: pathlib.Path) -> None:
         images_dir / 'f8bf9f37-20260413153649-442394a51b-5.4-47-800-800-666999-92ef6d0b.png'
       ),
       'alt_path': [],
-      'created_at': 1776091010,
+      'created_at': 1700666999,
       'format': 'PNG',
       'height': 800,
       'width': 800,
@@ -1362,7 +1363,7 @@ def testSyncRealImages(tmp_path: pathlib.Path) -> None:
       },
       'version': '0eb4a98',
     },
-    # image 4
+    # ── Image 3: 5a18... (dark knight in moody rain / negative batman, comic, text / DPM SDE) ──
     'db088cdca09796cadee02ec7eef8dd8e2227490a5afbb353461ab34d1ddbd8b9': {
       'ai_meta': {
         'cfg_end': 9,
@@ -1398,7 +1399,7 @@ def testSyncRealImages(tmp_path: pathlib.Path) -> None:
         'width': 512,
       },
       'alt_path': [],
-      'created_at': 1776421322,
+      'created_at': 1700666999,
       'format': 'PNG',
       'hash': 'db088cdca09796cadee02ec7eef8dd8e2227490a5afbb353461ab34d1ddbd8b9',
       'height': 256,
@@ -1415,7 +1416,9 @@ def testSyncRealImages(tmp_path: pathlib.Path) -> None:
       ),
       'origin': 'SDNext',
       'parse_errors': {},
-      'path': '/Users/balparda/py/transnext/tests/data/images/6db2ba7302bd-20260417102202-e6bb9ea8-80-40-512-256-666-db088cdca097.png',
+      'path': str(
+        images_dir / '6db2ba7302bd-20260417102202-e6bb9ea8-80-40-512-256-666-db088cdca097.png'
+      ),
       'raw_hash': 'dcf3c5cacfddc7b23f3314c680263c03ace7fedc456f6daa1907d5f7ed30af2e',
       'sd_info': {},
       'sd_params': {

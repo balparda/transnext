@@ -848,7 +848,7 @@ def _ImportImageFile(  # noqa: C901, PLR0912, PLR0914, PLR0915
       width=width,
       height=height,
       format=fmt.value,
-      created_at=int(img_path.stat().st_mtime),
+      created_at=base.GetFileCreation(img_path),
       origin=None,
       version=None,
       info=None,
@@ -1102,7 +1102,7 @@ def _ImportImageFile(  # noqa: C901, PLR0912, PLR0914, PLR0915
     width=width,
     height=height,
     format=fmt.value,
-    created_at=int(img_path.stat().st_mtime),
+    created_at=base.GetFileCreation(img_path),
     origin=img_origin.value if img_origin else ImageOrigin.AIUnknown.value,  # we could parse!
     version=app_version,
     info=info_text,
