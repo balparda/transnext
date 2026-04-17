@@ -1153,9 +1153,8 @@ def testSyncRealImages(tmp_path: pathlib.Path) -> None:
       'size': 1938975,
       'info': (
         'crazy\n'
-        'Steps: 30, Sampler: UniPC, CFG scale: 7.5, Seed: 1884649524, Size: '
-        '1024x1024, Model hash: e6bb9ea85b, Model: SDXL_00_v10VAEFix, RNG: '
-        'CPU, NGMS: 2.5, Version: v1.6.0'
+        'Steps: 30, Sampler: UniPC, CFG scale: 7.5, Seed: 1884649524, Size: 1024x1024, '
+        'Model hash: e6bb9ea85b, Model: SDXL_00_v10VAEFix, RNG: CPU, NGMS: 2.5, Version: v1.6.0'
       ),
       'origin': 'A1111',
       'parse_errors': {},
@@ -1217,11 +1216,10 @@ def testSyncRealImages(tmp_path: pathlib.Path) -> None:
       'info': (
         '(spaceship), space, [photograph]\n'
         'Negative prompt: planet, galaxy\n'
-        'Steps: 30, Size: 800x800, Sampler: DPM++ SDE, Scheduler: '
-        'DPMSolverMultistepScheduler, Seed: 1234321, CFG scale: 8.0, CFG end: '
-        '0.8, App: SD.Next, Version: 0eb4a98, Parser: a1111, Pipeline: '
-        'StableDiffusionXLPipeline, Operations: txt2img, Model: '
-        'SDXL_10_COL_colossusProjectXLSFW_v10bNeodemon, Model hash: dec85dd654'
+        'Steps: 30, Size: 800x800, Sampler: DPM++ SDE, Scheduler: DPMSolverMultistepScheduler, '
+        'Seed: 1234321, CFG scale: 8.0, CFG end: 0.8, App: SD.Next, Version: 0eb4a98, '
+        'Parser: a1111, Pipeline: StableDiffusionXLPipeline, Operations: txt2img, '
+        'Model: SDXL_10_COL_colossusProjectXLSFW_v10bNeodemon, Model hash: dec85dd654'
       ),
       'origin': 'SDNext',
       'parse_errors': {},
@@ -1289,13 +1287,13 @@ def testSyncRealImages(tmp_path: pathlib.Path) -> None:
         '((crazy woman face)), [snapshot:photorealistic:0.1], 1960s coloring, colorful fractal\n'
         '<lora:XL-CLR-colorful-fractal:1.2>\n'
         'Negative prompt: clown, text, cartoon\n'
-        'Steps: 47, Size: 800x800, Sampler: DPM SDE, Scheduler: '
-        'DPMSolverSDEScheduler, Seed: 666999, CFG scale: 5.4, CFG end: 0.7, '
-        'Clip skip: 1.3, App: SD.Next, Version: 0eb4a98, Parser: a1111, '
-        'Pipeline: StableDiffusionXLPipeline, Operations: txt2img, Model: '
-        'SDXL_13_REF_realisticFreedomSFW_ophelia, Model hash: 442394a51b, '
-        'Variation seed: 777, Variation strength: 0.62, Sampler spacing: '
-        'linspace, Sampler sigma: karras, Sampler type: epsilon, Sampler beta schedule: scaled'
+        'Steps: 47, Size: 800x800, Sampler: DPM SDE, Scheduler: DPMSolverSDEScheduler, '
+        'Seed: 666999, CFG scale: 5.4, CFG end: 0.7, Clip skip: 1.3, App: SD.Next, '
+        'Version: 0eb4a98, Parser: a1111, Pipeline: StableDiffusionXLPipeline, '
+        'Operations: txt2img, Model: SDXL_13_REF_realisticFreedomSFW_ophelia, '
+        'Model hash: 442394a51b, Variation seed: 777, Variation strength: 0.62, '
+        'Sampler spacing: linspace, Sampler sigma: karras, Sampler type: epsilon, '
+        'Sampler beta schedule: scaled'
       ),
       'origin': 'SDNext',
       'parse_errors': {},
@@ -1363,5 +1361,93 @@ def testSyncRealImages(tmp_path: pathlib.Path) -> None:
         'width': '800',
       },
       'version': '0eb4a98',
+    },
+    # image 4
+    'db088cdca09796cadee02ec7eef8dd8e2227490a5afbb353461ab34d1ddbd8b9': {
+      'ai_meta': {
+        'cfg_end': 9,
+        'cfg_rescale': 80,
+        'cfg_scale': 80,
+        'cfg_skip': None,
+        'clip_skip': 20,
+        'freeu': (
+          110,
+          115,
+          70,
+          60,
+        ),
+        'height': 256,
+        'img2img': None,
+        'lora': {},
+        'model_hash': 'e6bb9ea85b1065e7bce3cf03',
+        'negative': 'batman, comic, text',
+        'ngms': None,
+        'parser': 'a1111',
+        'positive': 'dark knight in moody rain',
+        'sampler': 'DPM SDE',
+        'sch_beta': 'linear',
+        'sch_sigma': 'karras',
+        'sch_spacing': 'linspace',
+        'sch_type': 'epsilon',
+        'seed': 666,
+        'steps': 40,
+        'v_seed': (
+          999,
+          30,
+        ),
+        'width': 512,
+      },
+      'alt_path': [],
+      'created_at': 1776421322,
+      'format': 'PNG',
+      'hash': 'db088cdca09796cadee02ec7eef8dd8e2227490a5afbb353461ab34d1ddbd8b9',
+      'height': 256,
+      'info': (
+        'dark knight in moody rain\n'
+        'Negative prompt: batman, comic, text\n'
+        'Steps: 40, Size: 512x256, Sampler: DPM SDE, Scheduler: DPMSolverSDEScheduler, '
+        'Seed: 666, CFG scale: 8.0, CFG rescale: 0.8, CFG end: 0.9, Clip skip: 2, App: SD.Next, '
+        'Version: 0eb4a98, Parser: a1111, Pipeline: StableDiffusionXLPipeline, '
+        'Operations: txt2img, Model: SDXL_00_XLB_v10VAEFix, Model hash: e6bb9ea85b, '
+        'Variation seed: 999, Variation strength: 0.3, Sampler spacing: linspace, '
+        'Sampler sigma: karras, Sampler type: epsilon, Sampler beta schedule: linear, '
+        'FreeU: b1=1.1 b2=1.15 s1=0.7 s2=0.6'
+      ),
+      'origin': 'SDNext',
+      'parse_errors': {},
+      'path': '/Users/balparda/py/transnext/tests/data/images/6db2ba7302bd-20260417102202-e6bb9ea8-80-40-512-256-666-db088cdca097.png',
+      'raw_hash': 'dcf3c5cacfddc7b23f3314c680263c03ace7fedc456f6daa1907d5f7ed30af2e',
+      'sd_info': {},
+      'sd_params': {
+        'app': 'SD.Next',
+        'cfg end': '0.9',
+        'cfg rescale': '0.8',
+        'cfg scale': '8.0',
+        'clip skip': '2',
+        'freeu': 'b1=1.1 b2=1.15 s1=0.7 s2=0.6',
+        'height': '256',
+        'model': 'SDXL_00_XLB_v10VAEFix',
+        'model hash': 'e6bb9ea85b',
+        'negative': 'batman, comic, text',
+        'operations': 'txt2img',
+        'parser': 'a1111',
+        'pipeline': 'StableDiffusionXLPipeline',
+        'positive': 'dark knight in moody rain',
+        'sampler': 'DPM SDE',
+        'sampler beta schedule': 'linear',
+        'sampler sigma': 'karras',
+        'sampler spacing': 'linspace',
+        'sampler type': 'epsilon',
+        'scheduler': 'DPMSolverSDEScheduler',
+        'seed': '666',
+        'steps': '40',
+        'variation seed': '999',
+        'variation strength': '0.3',
+        'version': '0eb4a98',
+        'width': '512',
+      },
+      'size': 166684,
+      'version': '0eb4a98',
+      'width': 512,
     },
   }
