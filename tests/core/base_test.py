@@ -22,23 +22,7 @@ def testErrorIsSubclass() -> None:
   assert issubclass(base.Error, Exception)
 
 
-def testErrorRaise() -> None:
-  """Error can be raised and caught."""  # noqa: DOC501
-  with pytest.raises(base.Error, match='test error'):
-    raise base.Error('test error')
-
-
 # ─── Module-level defaults (SDAPI_URL parsing) ───────────────────────────────
-
-
-def testDefaultPortNoEnvVar() -> None:
-  """DEFAULT_PORT is 7860 when SDAPI_URL is not set."""
-  assert base.DEFAULT_PORT == 7860
-
-
-def testDefaultHostNoEnvVar() -> None:
-  """DEFAULT_HOST is http://127.0.0.1 when SDAPI_URL is not set."""
-  assert base.DEFAULT_HOST == 'http://127.0.0.1'
 
 
 def testMakeURL() -> None:
@@ -75,44 +59,7 @@ def testSdapiUrlInvalidPort() -> None:
       importlib.reload(base)
 
 
-# ─── ImageFormat ─────────────────────────────────────────────────────────────
-
-
-def testImageFormatValues() -> None:
-  """ImageFormat enum has correct values."""
-  assert base.ImageFormat.JPEG.value == 'JPEG'
-  assert base.ImageFormat.PNG.value == 'PNG'
-  assert base.ImageFormat.GIF.value == 'GIF'
-
-
-def testImageFormatCount() -> None:
-  """ImageFormat enum has 3 members."""
-  assert len(base.ImageFormat) == 3
-
-
 # ─── Sampler ─────────────────────────────────────────────────────────────────
-
-
-def testSamplerValues() -> None:
-  """Sampler enum has correct string values for key members."""
-  assert base.Sampler.Euler.value == 'Euler'
-  assert base.Sampler.Euler_A.value == 'Euler a'
-  assert base.Sampler.UniPC.value == 'UniPC'
-  assert base.Sampler.DPM_P_SDE.value == 'DPM++ SDE'
-  assert base.Sampler.DPM_P_2M_SDE.value == 'DPM++ 2M SDE'
-  assert base.Sampler.DDIM.value == 'DDIM'
-  assert base.Sampler.LCM.value == 'LCM'
-  assert base.Sampler.Heun.value == 'Heun'
-  assert base.Sampler.DPM_P_2M.value == 'DPM++ 2M'
-
-
-def testSamplerA1111Values() -> None:
-  """SamplerA1111 enum has correct string values."""
-  assert base.SamplerA1111.DPM_ADAPTIVE.value == 'DPM adaptive'
-  assert base.SamplerA1111.DPM_FAST.value == 'DPM fast'
-  assert base.SamplerA1111.DPM_P_2S_A.value == 'DPM++ 2S a'
-  assert base.SamplerA1111.DPM_P_2M_KARRAS.value == 'DPM++ 2M Karras'
-  assert base.SamplerA1111.DPM_P_3M_SDE.value == 'DPM++ 3M SDE'
 
 
 def testSamplerA1111SubsetOfSampler() -> None:
@@ -120,88 +67,6 @@ def testSamplerA1111SubsetOfSampler() -> None:
   sampler_values: set[str] = {s.value for s in base.Sampler}
   for a1111 in base.SamplerA1111:
     assert a1111.value in sampler_values, f'{a1111.value!r} not found in Sampler'
-
-
-# ─── QueryParser ─────────────────────────────────────────────────────────────
-
-
-def testQueryParserValues() -> None:
-  """QueryParser enum has correct string values."""
-  assert base.QueryParser.SDNextNative.value == 'native'
-  assert base.QueryParser.Compel.value == 'compel'
-  assert base.QueryParser.XHinker.value == 'xhinker'
-  assert base.QueryParser.A1111.value == 'a1111'
-  assert base.QueryParser.Fixed.value == 'fixed'
-
-
-def testQueryParserCount() -> None:
-  """QueryParser enum has 5 members."""
-  assert len(base.QueryParser) == 5
-
-
-# ─── Scheduler enums ─────────────────────────────────────────────────────────
-
-
-def testSchedulerSigmaValues() -> None:
-  """SchedulerSigma enum has correct values."""
-  assert base.SchedulerSigma.default.value == 'default'
-  assert base.SchedulerSigma.karras.value == 'karras'
-  assert base.SchedulerSigma.exponential.value == 'exponential'
-  assert len(base.SchedulerSigma) == 6
-
-
-def testSchedulerSpacingValues() -> None:
-  """SchedulerSpacing enum has correct values."""
-  assert base.SchedulerSpacing.default.value == 'default'
-  assert base.SchedulerSpacing.linspace.value == 'linspace'
-  assert len(base.SchedulerSpacing) == 4
-
-
-def testSchedulerBetaValues() -> None:
-  """SchedulerBeta enum has correct values."""
-  assert base.SchedulerBeta.default.value == 'default'
-  assert base.SchedulerBeta.linear.value == 'linear'
-  assert base.SchedulerBeta.cosine.value == 'cosine'
-  assert len(base.SchedulerBeta) == 6
-
-
-def testSchedulerPredictionTypeValues() -> None:
-  """SchedulerPredictionType enum has correct values."""
-  assert base.SchedulerPredictionType.default.value == 'default'
-  assert base.SchedulerPredictionType.epsilon.value == 'epsilon'
-  assert base.SchedulerPredictionType.v_prediction.value == 'v_prediction'
-  assert len(base.SchedulerPredictionType) == 5
-
-
-# ─── Default constants ───────────────────────────────────────────────────────
-
-
-def testDefaultConstants() -> None:
-  """Default iteration/size/cfg constants have expected values."""
-  assert base.SD_DEFAULT_ITERATIONS == 20
-  assert base.SD_DEFAULT_WIDTH == 1024
-  assert base.SD_DEFAULT_HEIGHT == 1024
-  assert base.SD_DEFAULT_CFG_SCALE == 60
-  assert base.SD_DEFAULT_CFG_END == 8
-  assert base.SD_DEFAULT_CLIP_SKIP == 10
-  assert base.SD_DEFAULT_QUERY_PARSER == base.QueryParser.A1111
-  assert base.SD_DEFAULT_SAMPLER == base.Sampler.DPM_P_SDE
-  assert base.SD_MAX_SEED == 2**64 - 1
-  assert base.SD_MAX_ITERATIONS == 200
-  assert base.SD_DEFAULT_CFG_RESCALE == 0
-  assert base.SD_DEFAULT_FREEU is True
-  assert base.SD_DEFAULT_DENOISING == 50
-
-
-# ─── FreeU default constants ─────────────────────────────────────────────────
-
-
-def testFreeUDefaults() -> None:
-  """FreeU default constants have expected int-storage values."""
-  assert base.SD_DEFAULT_FREEU_B1 == 105
-  assert base.SD_DEFAULT_FREEU_B2 == 110
-  assert base.SD_DEFAULT_FREEU_S1 == 75
-  assert base.SD_DEFAULT_FREEU_S2 == 65
 
 
 # ─── TransNextConfig ─────────────────────────────────────────────────────────

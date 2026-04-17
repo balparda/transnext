@@ -47,6 +47,7 @@ class Endpoints(enum.Enum):
   MODELS = 'sd-models'
   LORA = 'loras'
   OPTIONS = 'options'
+  COMMAND_FLAGS = 'cmd-flags'
   RELOAD_CHECKPOINT = 'reload-checkpoint'
   TXT2IMG = 'txt2img'
 
@@ -59,8 +60,9 @@ class APICalls(enum.Enum):
   LORA = 3
   READ_OPTIONS = 4
   SET_OPTIONS = 5
-  RELOAD_CHECKPOINT = 6
-  TXT2IMG = 7
+  COMMAND_FLAGS = 6
+  RELOAD_CHECKPOINT = 7
+  TXT2IMG = 8
 
 
 _API_CALL_MATRIX: dict[
@@ -72,6 +74,7 @@ _API_CALL_MATRIX: dict[
   APICalls.LORA: (APIVersions.V1, Endpoints.LORA, requests.get),
   APICalls.READ_OPTIONS: (APIVersions.V2, Endpoints.OPTIONS, requests.get),
   APICalls.SET_OPTIONS: (APIVersions.V2, Endpoints.OPTIONS, requests.post),
+  APICalls.COMMAND_FLAGS: (APIVersions.V1, Endpoints.COMMAND_FLAGS, requests.get),
   APICalls.RELOAD_CHECKPOINT: (APIVersions.V1, Endpoints.RELOAD_CHECKPOINT, requests.post),
   APICalls.TXT2IMG: (APIVersions.V1, Endpoints.TXT2IMG, requests.post),
 }
@@ -321,6 +324,120 @@ class API(db.APIProtocol):
     """
     self.Call(APICalls.SET_OPTIONS, new_options)
     logging.info(f'Options set in SDNext API: {new_options}')
+
+  @property
+  def flags(self) -> tbase.JSONDict:
+    """Get current SDNext API command flags. Costs an API call.
+
+    Schema:
+
+    {
+      'ckpt': null,
+      'data_dir': '',
+      'models_dir': null,
+      'embeddings_dir': 'models/embeddings',
+      'vae_dir': 'models/VAE',
+      'lora_dir': 'models/Lora',
+      'extensions_dir': null,
+      'config': 'config.json',
+      'secrets': 'secrets.json',
+      'ui_config': 'ui-config.json',
+      'freeze': false,
+      'medvram': false,
+      'lowvram': false,
+      'disable': '',
+      'device_id': null,
+      'use_cuda': false,
+      'use_ipex': false,
+      'use_rocm': false,
+      'use_zluda': false,
+      'use_openvino': false,
+      'use_directml': false,
+      'use_xformers': false,
+      'use_nightly': false,
+      'no_half': false,
+      'no_half_vae': false,
+      'theme': null,
+      'locale': null,
+      'enso': false,
+      'server_name': null,
+      'tls_keyfile': null,
+      'tls_certfile': null,
+      'tls_selfsign': false,
+      'cors_origins': null,
+      'cors_regex': null,
+      'subpath': null,
+      'autolaunch': false,
+      'auth': null,
+      'auth_file': null,
+      'insecure': false,
+      'listen': false,
+      'port': 7861,
+      'experimental': false,
+      'ignore': false,
+      'new': false,
+      'safe': false,
+      'test': false,
+      'version': false,
+      'monitor': 0.0,
+      'status': 120.0,
+      'log': null,
+      'debug': true,
+      'trace': false,
+      'profile': false,
+      'docs': true,
+      'api_log': true,
+      'backend': null,
+      'enable_insecure_extension_access': false,
+      'api_only': false,
+      'disable_queue': false,
+      'no_hashing': false,
+      'no_metadata': false,
+      'precision': 'autocast',
+      'upcast_sampling': false,
+      'hypernetwork_dir': null,
+      'share': false,
+      'quick': false,
+      'reset': false,
+      'upgrade': false,
+      'requirements': false,
+      'reinstall': false,
+      'uv': false,
+      'optional': false,
+      'skip_requirements': false,
+      'skip_extensions': false,
+      'skip_git': false,
+      'skip_torch': true,
+      'skip_all': false,
+      'skip_env': false,
+      'agent_scheduler_sqlite_file': 'task_scheduler.sqlite3',
+      'allow_code': false,
+      'use_cpu': [],
+      'f': false,
+      'vae': null,
+      'ui_settings_file': 'config.json',
+      'ui_config_file': 'ui-config.json',
+      'hide_ui_dir_config': false,
+      'disable_console_progressbars': true,
+      'disable_safe_unpickle': true,
+      'lowram': false,
+      'disable_extension_access': false,
+      'allowed_paths': [],
+      'api': true,
+      'api_auth': null,
+    }
+
+    Returns:
+      A dictionary containing the current command flags.
+
+    Raises:
+      Error: If there is an error with the API call or if the response is invalid.
+
+    """
+    flags: tbase.JSONValue = self.Call(APICalls.READ_OPTIONS)
+    if not isinstance(flags, dict):
+      raise Error(f'Invalid command flags response from SDNext API: {flags}')
+    return flags
 
   def GetModels(self) -> list[db.AIModelType]:
     """Get list of available models from SDNext API.

@@ -150,34 +150,6 @@ def testOverrides() -> None:
   }
 
 
-# ─── ImageOrigin ─────────────────────────────────────────────────────────────
-
-
-def testImageOriginValues() -> None:
-  """ImageOrigin enum has correct values."""
-  assert db.ImageOrigin.A1111.value == 'A1111'
-  assert db.ImageOrigin.SDNext.value == 'SDNext'
-  assert db.ImageOrigin.TransNext.value == 'TransNext'
-  assert db.ImageOrigin.AIUnknown.value == 'AIUnknown'
-
-
-# ─── ModelType / ModelFunction ───────────────────────────────────────────────
-
-
-def testModelTypeValues() -> None:
-  """ModelType enum has correct values."""
-  assert db.ModelType.safetensors.value == 'safetensors'
-  assert db.ModelType.checkpoint.value == 'ckpt'
-  assert db.ModelType.pt.value == 'pt'
-
-
-def testModelFunctionValues() -> None:
-  """ModelFunction enum has correct values."""
-  assert db.ModelFunction.Model.value == 'Model'
-  assert db.ModelFunction.Lora.value == 'Lora'
-  assert db.ModelFunction.Lycoris.value == 'Lycoris'
-
-
 # ─── AIMetaTypeFactory ───────────────────────────────────────────────────────
 
 

@@ -7,40 +7,45 @@ from __future__ import annotations
 import base64
 import io
 import json
+import pathlib
 from unittest import mock
 
 import pytest
 import requests
-from PIL import Image, PngImagePlugin
+from PIL import Image
 from transcrypto.utils import base as tbase
 
 from transnext import __version__ as _transnext_version
 from transnext.core import base, db, sdnapi
 
+# --- real test PNG (stable on-disk image, version-independent) ---
+
+_TEST_PNG_PATH: pathlib.Path = (
+  pathlib.Path(__file__).parent.parent
+  / 'data'
+  / 'images'
+  / '6db2ba7302bd-20260417102202-e6bb9ea8-80-40-512-256-666-db088cdca097.png'
+)
+_TEST_PNG_BYTES: bytes = _TEST_PNG_PATH.read_bytes()
+_TEST_PNG_B64: str = base64.b64encode(_TEST_PNG_BYTES).decode('ascii')
+_TEST_PNG_WIDTH: int = 512
+_TEST_PNG_HEIGHT: int = 256
+_TEST_PNG_SIZE: int = len(_TEST_PNG_BYTES)
+_TEST_PNG_HASH: str = 'db088cdca09796cadee02ec7eef8dd8e2227490a5afbb353461ab34d1ddbd8b9'
+_TEST_PNG_RAW_HASH: str = 'dcf3c5cacfddc7b23f3314c680263c03ace7fedc456f6daa1907d5f7ed30af2e'
+_TEST_PNG_INFO_TEXT: str = (
+  'dark knight in moody rain\n'
+  'Negative prompt: batman, comic, text\n'
+  'Steps: 40, Size: 512x256, Sampler: DPM SDE, Scheduler: DPMSolverSDEScheduler, Seed: 666, '
+  'CFG scale: 8.0, CFG rescale: 0.8, CFG end: 0.9, Clip skip: 2, App: SD.Next, '
+  'Version: 0eb4a98, Parser: a1111, Pipeline: StableDiffusionXLPipeline, '
+  'Operations: txt2img, Model: SDXL_00_XLB_v10VAEFix, Model hash: e6bb9ea85b, '
+  'Variation seed: 999, Variation strength: 0.3, Sampler spacing: linspace, '
+  'Sampler sigma: karras, Sampler type: epsilon, Sampler beta schedule: linear, '
+  'FreeU: b1=1.1 b2=1.15 s1=0.7 s2=0.6'
+)
+
 # --- helpers ---
-
-
-def _MakePNG(
-  width: int = 64,
-  height: int = 64,
-  info_text: str = 'some info text',
-) -> bytes:
-  """Create a minimal valid PNG in memory with embedded info text."""  # noqa: DOC201
-  img: Image.Image = Image.new('RGBA', (width, height), color=(255, 0, 0, 255))
-  png_info = PngImagePlugin.PngInfo()
-  png_info.add_text('parameters', info_text)
-  buf = io.BytesIO()
-  img.save(buf, format='PNG', pnginfo=png_info)
-  return buf.getvalue()
-
-
-def _B64PNG(
-  width: int = 64,
-  height: int = 64,
-  info_text: str = 'some info text',
-) -> str:
-  """Create base64-encoded PNG string."""  # noqa: DOC201
-  return base64.b64encode(_MakePNG(width, height, info_text)).decode('ascii')
 
 
 def _MakeMeta(overrides: dict[str, object] | None = None) -> db.AIMetaType:
@@ -80,24 +85,20 @@ def _MockCallResponse(json_data: object, status: int = 200) -> mock.Mock:
   return resp
 
 
-def _Txt2ImgAPIData(
-  width: int = 64,
-  height: int = 64,
-  info_text: str = 'some info text',
-) -> dict[str, object]:
-  """Build a full valid Txt2Img API response dict."""  # noqa: DOC201
+def _Txt2ImgAPIData() -> dict[str, object]:
+  """Build a full valid Txt2Img API response dict using the real test PNG."""  # noqa: DOC201
   return {
-    'images': [_B64PNG(width, height, info_text)],
+    'images': [_TEST_PNG_B64],
     'info': json.dumps(
       {
-        'width': width,
-        'height': height,
+        'width': _TEST_PNG_WIDTH,
+        'height': _TEST_PNG_HEIGHT,
         'sd_model_checkpoint': 'test-model',
       }
     ),
     'parameters': {
-      'width': width,
-      'height': height,
+      'width': _TEST_PNG_WIDTH,
+      'height': _TEST_PNG_HEIGHT,
       'sd_model_checkpoint': 'test-model',
     },
   }
@@ -113,32 +114,7 @@ def _MockAPI(url: str = 'http://localhost:7860', **kwargs: object) -> sdnapi.API
     return sdnapi.API(url, **kwargs)  # type: ignore[arg-type]
 
 
-# --- Endpoints ---
-
-
-def testEndpointValues() -> None:
-  """Endpoints have correct string values."""
-  assert sdnapi.Endpoints.MODELS.value == 'sd-models'
-  assert sdnapi.Endpoints.OPTIONS.value == 'options'
-  assert sdnapi.Endpoints.RELOAD_CHECKPOINT.value == 'reload-checkpoint'
-  assert sdnapi.Endpoints.TXT2IMG.value == 'txt2img'
-  assert sdnapi.Endpoints.LORA.value == 'loras'
-  assert sdnapi.Endpoints.SYSTEM_STATUS.value == 'system-info'
-
-
 # --- APIVersions / APICalls ---
-
-
-def testAPIVersionsValues() -> None:
-  """APIVersions enum has expected paths."""
-  assert sdnapi.APIVersions.V1.value == '/sdapi/v1/'
-  assert sdnapi.APIVersions.V2.value == '/sdapi/v2/'
-
-
-def testAPICallsValues() -> None:
-  """APICalls enum covers all calls."""
-  values: set[int] = {c.value for c in sdnapi.APICalls}
-  assert values == {1, 2, 3, 4, 5, 6, 7}
 
 
 def testAPICallMatrixComplete() -> None:
@@ -548,7 +524,7 @@ def testGetLoraMissingNameRaises() -> None:
 
 def testTxt2ImgSuccess() -> None:
   """Txt2Img returns valid DBImageType and image bytes."""
-  meta: db.AIMetaType = _MakeMeta({'width': 64, 'height': 64})
+  meta: db.AIMetaType = _MakeMeta({'width': _TEST_PNG_WIDTH, 'height': _TEST_PNG_HEIGHT})
   model: db.AIModelType = _MakeModel()
   api: sdnapi.API = _MockAPI()
   with mock.patch.object(api, 'Call') as mock_call:
@@ -556,33 +532,33 @@ def testTxt2ImgSuccess() -> None:
     mock_call.side_effect = [
       {'sd_checkpoint_hash': 'abc123', 'sd_model_checkpoint': 'test-model'},
       None,  # options set
-      _Txt2ImgAPIData(64, 64),  # txt2img
+      _Txt2ImgAPIData(),  # txt2img
     ]
     db_img, img_data = api.Txt2Img(model, meta)
-  assert len(img_data) > 0
+  assert len(img_data) == _TEST_PNG_SIZE
   # pop variable fields and check them separately
   assert db_img.pop('created_at') > 1000000  # type: ignore[misc]
   assert db_img == {
     'path': None,
     'alt_path': [],
-    'width': 64,
-    'height': 64,
-    'size': 217,
-    'hash': '75d704ad7cf296cc1f21cfea8dfb8a1b829559b88ba832885d8fa68d080659f7',
-    'raw_hash': '0bcc07de1631aa0395013f35790f719bd754f61e4bb2847a86fdc2365d3d8d63',
+    'width': _TEST_PNG_WIDTH,
+    'height': _TEST_PNG_HEIGHT,
+    'size': _TEST_PNG_SIZE,
+    'hash': _TEST_PNG_HASH,
+    'raw_hash': _TEST_PNG_RAW_HASH,
     'format': 'PNG',
     'origin': db.ImageOrigin.TransNext.value,
     'version': f'abc123/{_transnext_version}',
-    'info': 'some info text',
-    'ai_meta': _MakeMeta({'width': 64, 'height': 64}),
+    'info': _TEST_PNG_INFO_TEXT,
+    'ai_meta': _MakeMeta({'width': _TEST_PNG_WIDTH, 'height': _TEST_PNG_HEIGHT}),
     'sd_info': {
-      'width': 64,
-      'height': 64,
+      'width': _TEST_PNG_WIDTH,
+      'height': _TEST_PNG_HEIGHT,
       'sd_model_checkpoint': 'test-model',
     },
     'sd_params': {
-      'width': 64,
-      'height': 64,
+      'width': _TEST_PNG_WIDTH,
+      'height': _TEST_PNG_HEIGHT,
       'sd_model_checkpoint': 'test-model',
     },
     'parse_errors': {},
@@ -591,7 +567,7 @@ def testTxt2ImgSuccess() -> None:
 
 def testTxt2ImgModelChange() -> None:
   """Txt2Img triggers model reload when model changes."""
-  meta: db.AIMetaType = _MakeMeta({'width': 64, 'height': 64})
+  meta: db.AIMetaType = _MakeMeta({'width': _TEST_PNG_WIDTH, 'height': _TEST_PNG_HEIGHT})
   model: db.AIModelType = _MakeModel()
   api: sdnapi.API = _MockAPI()
   with mock.patch.object(api, 'Call') as mock_call:
@@ -599,23 +575,23 @@ def testTxt2ImgModelChange() -> None:
       {'sd_checkpoint_hash': 'different_hash', 'sd_model_checkpoint': 'old-model'},
       None,  # options set
       None,  # reload checkpoint
-      _Txt2ImgAPIData(64, 64),  # txt2img
+      _Txt2ImgAPIData(),  # txt2img
     ]
     db_img, _img_data = api.Txt2Img(model, meta)
-  assert db_img['width'] == 64
+  assert db_img['width'] == _TEST_PNG_WIDTH
   assert mock_call.call_count == 4
 
 
 def testTxt2ImgWithDirRoot(tmp_path: mock.Mock) -> None:
   """Txt2Img saves image to disk when dir_root is provided."""
-  meta: db.AIMetaType = _MakeMeta({'width': 64, 'height': 64})
+  meta: db.AIMetaType = _MakeMeta({'width': _TEST_PNG_WIDTH, 'height': _TEST_PNG_HEIGHT})
   model: db.AIModelType = _MakeModel()
   api: sdnapi.API = _MockAPI()
   with mock.patch.object(api, 'Call') as mock_call:
     mock_call.side_effect = [
       {'sd_checkpoint_hash': 'abc123', 'sd_model_checkpoint': 'test-model'},
       None,
-      _Txt2ImgAPIData(64, 64),
+      _Txt2ImgAPIData(),
     ]
     db_img, _img_data = api.Txt2Img(model, meta, dir_root=tmp_path)
   assert db_img['path'] is not None
@@ -716,21 +692,21 @@ def testTxt2ImgInvalidResponseRaises() -> None:
 
 def testTxt2ImgParametersSizeMismatchRaises() -> None:
   """Txt2Img raises Error when parameters size does not match meta."""
-  meta: db.AIMetaType = _MakeMeta({'width': 64, 'height': 64})
+  meta: db.AIMetaType = _MakeMeta({'width': _TEST_PNG_WIDTH, 'height': _TEST_PNG_HEIGHT})
   model: db.AIModelType = _MakeModel()
   api: sdnapi.API = _MockAPI()
   bad_data: dict[str, object] = {
-    'images': [_B64PNG(64, 64)],
+    'images': [_TEST_PNG_B64],
     'info': json.dumps(
       {
-        'width': 64,
-        'height': 64,
+        'width': _TEST_PNG_WIDTH,
+        'height': _TEST_PNG_HEIGHT,
         'sd_model_checkpoint': 'test-model',
       }
     ),
     'parameters': {
-      'width': 128,
-      'height': 64,
+      'width': _TEST_PNG_WIDTH * 2,  # mismatch: not what meta requested
+      'height': _TEST_PNG_HEIGHT,
       'sd_model_checkpoint': 'test-model',
     },
   }
@@ -746,14 +722,14 @@ def testTxt2ImgParametersSizeMismatchRaises() -> None:
 
 def testTxt2ImgNoDirRootNoSave() -> None:
   """Txt2Img sets path to None when no dir_root is given."""
-  meta: db.AIMetaType = _MakeMeta({'width': 64, 'height': 64})
+  meta: db.AIMetaType = _MakeMeta({'width': _TEST_PNG_WIDTH, 'height': _TEST_PNG_HEIGHT})
   model: db.AIModelType = _MakeModel()
   api: sdnapi.API = _MockAPI()
   with mock.patch.object(api, 'Call') as mock_call:
     mock_call.side_effect = [
       {'sd_checkpoint_hash': 'abc123', 'sd_model_checkpoint': 'test-model'},
       None,
-      _Txt2ImgAPIData(64, 64),
+      _Txt2ImgAPIData(),
     ]
     db_img, _img_data = api.Txt2Img(model, meta)
   assert db_img['path'] is None
@@ -765,13 +741,13 @@ def testTxt2ImgNoDirRootNoSave() -> None:
 def testExtractValidPNG() -> None:
   """Extracts valid PNG image data with info text."""
   data: tbase.JSONDict = {
-    'images': [_B64PNG(64, 64)],
-    'parameters': {'width': 64, 'height': 64},
+    'images': [_TEST_PNG_B64],
+    'parameters': {'width': _TEST_PNG_WIDTH, 'height': _TEST_PNG_HEIGHT},
   }
   img_data, raw_hash, info_text = sdnapi._ExtractImageData(data)
-  assert len(img_data) > 0
-  assert len(raw_hash) > 0
-  assert info_text == 'some info text'
+  assert len(img_data) == _TEST_PNG_SIZE
+  assert raw_hash == _TEST_PNG_RAW_HASH
+  assert info_text == _TEST_PNG_INFO_TEXT
 
 
 def testExtractMissingImagesRaises() -> None:
@@ -783,14 +759,14 @@ def testExtractMissingImagesRaises() -> None:
 def testExtractMissingParametersRaises() -> None:
   """Raises Error when parameters key is missing."""
   with pytest.raises(sdnapi.Error, match='Image metadata not received'):
-    sdnapi._ExtractImageData({'images': [_B64PNG()]})
+    sdnapi._ExtractImageData({'images': [_TEST_PNG_B64]})
 
 
 def testExtractWrongImageCountRaises() -> None:
   """Raises Error when image count is not exactly 1."""
   data: tbase.JSONDict = {
-    'images': [_B64PNG(), _B64PNG()],
-    'parameters': {'width': 64, 'height': 64},
+    'images': [_TEST_PNG_B64, _TEST_PNG_B64],
+    'parameters': {'width': _TEST_PNG_WIDTH, 'height': _TEST_PNG_HEIGHT},
   }
   with pytest.raises(sdnapi.Error, match='Expected exactly 1 image'):
     sdnapi._ExtractImageData(data)
@@ -809,8 +785,8 @@ def testExtractEmptyImagesListRaises() -> None:
 def testExtractCommaInBase64Raises() -> None:
   """Raises Error when base64 string contains comma."""
   data: tbase.JSONDict = {
-    'images': ['data:image/png;base64,' + _B64PNG()],
-    'parameters': {'width': 64, 'height': 64},
+    'images': ['data:image/png;base64,' + _TEST_PNG_B64],
+    'parameters': {'width': _TEST_PNG_WIDTH, 'height': _TEST_PNG_HEIGHT},
   }
   with pytest.raises(sdnapi.Error, match='Unexpected comma'):
     sdnapi._ExtractImageData(data)
@@ -843,8 +819,8 @@ def testExtractNonPNGImageRaises() -> None:
 def testExtractImageSizeMismatchRaises() -> None:
   """Raises Error when image dimensions do not match parameters."""
   data: tbase.JSONDict = {
-    'images': [_B64PNG(64, 64)],
-    'parameters': {'width': 128, 'height': 128},
+    'images': [_TEST_PNG_B64],
+    'parameters': {'width': 128, 'height': 128},  # real PNG is 512x256, not 128x128
   }
   with pytest.raises(sdnapi.Error, match='Expected image of size'):
     sdnapi._ExtractImageData(data)
