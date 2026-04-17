@@ -29,9 +29,10 @@ Usage: gen [OPTIONS] COMMAND [ARGS]...
 │ --help                                                               Show this message and exit.                                                        │
 ╰─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
 ╭─ Commands ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
-│ markdown  Emit Markdown docs for the CLI (see README.md section "Creating a New Version").                                                              │
-│ make      Query the model.                                                                                                                              │
-│ sync      Go over all known image dirs, check for new/deleted images, update DB accordingly.                                                            │
+│ markdown   Emit Markdown docs for the CLI (see README.md section "Creating a New Version").                                                             │
+│ make       Query the model.                                                                                                                             │
+│ reproduce  Reproduce an existing DB image by hash or file path.                                                                                         │
+│ sync       Go over all known image dirs, check for new/deleted images, update DB accordingly.                                                           │
 ╰─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -62,10 +63,11 @@ Usage: gen make [OPTIONS] POSITIVE_PROMPT
 │                                                                                              seed; 0.0 ≤ s ≤ 1.0; default: 0.5; only used if variation  │
 │                                                                                              seed is provided                                           │
 │                                                                                                                                           │
-│ --width        -w                 INTEGER RANGE [16<=x<=4096]                                Width of the generated image; 16 ≤ i ≤ 4096; default: 1024 │
+│ --width        -w                 INTEGER RANGE [16<=x<=4096]                                Width of the generated image; 16 ≤ i ≤ 4096, multiple of   │
+│                                                                                              8; default: 1024                                           │
 │                                                                                                                                          │
-│ --height       -h                 INTEGER RANGE [16<=x<=4096]                                Height of the generated image; 16 ≤ i ≤ 4096; default:     │
-│                                                                                              1024                                                       │
+│ --height       -h                 INTEGER RANGE [16<=x<=4096]                                Height of the generated image; 16 ≤ i ≤ 4096, multiple of  │
+│                                                                                              8; default: 1024                                           │
 │                                                                                                                                          │
 │ --sampler                         [UniPC|DDIM|Euler|Euler a|Euler SGM|Euler EDM|Euler        Sampler to use for the generation; default: 'DPM++ SDE'    │
 │                                   FlowMatch|DPM++|DPM++ 2M|DPM++ 3M|DPM++ 1S|DPM++                                                  │
@@ -147,6 +149,30 @@ Usage: gen markdown [OPTIONS]
                                                                                                                                                            
  $ poetry run gen markdown > gen.md                                                                                                                        
  <<saves CLI doc>>
+```
+
+## `gen reproduce` Command
+
+```text
+Usage: gen reproduce [OPTIONS] HASH_OR_PATH                                                                                                               
+                                                                                                                                                           
+ Reproduce an existing DB image by hash or file path.                                                                                                      
+                                                                                                                                                           
+╭─ Arguments ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ *    hash_or_path      TEXT  Image hash (hex string) or file path to reproduce. If a path is given it will be resolved to a hash via the DB index.      │
+│                                                                                                                                               │
+╰─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+╭─ Options ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ --backup    --no-backup      If True, SDNext API server will save a backup copy of the generated images to its default local storage; default: False    │
+│                              (images will only be saved in the TransNext DB)                                                                            │
+│                                                                                                                                     │
+│ --help                       Show this message and exit.                                                                                                │
+╰─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+                                                                                                                                                           
+ Example:                                                                                                                                                  
+                                                                                                                                                           
+ poetry run gen reproduce abc123def456                                                                                                                     
+ poetry run gen reproduce ~/foo/bar/image.png
 ```
 
 ## `gen sync` Command

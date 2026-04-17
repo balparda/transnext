@@ -351,6 +351,6 @@ def testMakeSemiIntegration(
     'batman, comic, text',
   )
   assert filename.startswith(prompt_hash)
-  assert '-e6bb9ea8-' in filename  # model_hash[:8]
+  assert '-e6bb9ea85b-' in filename  # model_hash[:8]
   assert '-80-40-512-256-666-' in filename  # cfg*10, steps, w, h, seed
   assert filename.endswith(f'{expected_img_hash[:12]}.png')

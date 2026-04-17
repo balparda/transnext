@@ -390,7 +390,11 @@ class AIDatabase:
       hash of the image that has this path, or None if not found
 
     """
-    return self._paths.get(path)
+    try:
+      val_path: pathlib.Path = pathlib.Path(path).expanduser().resolve()
+    except Exception:  # noqa: BLE001
+      return None
+    return self._paths.get(str(val_path))
 
   @property
   def output(self) -> pathlib.Path | None:
