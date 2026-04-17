@@ -1033,6 +1033,7 @@ class API(db.APIProtocol):
         f'{img_hash[:12]}.png'
       )
       full_path = out_dir / filename
+      # TODO: instead of writing the "original" we add our meta to it so we can have lossless load
       full_path.write_bytes(img_data)
       logging.info(f'SDNext API image saved: {full_path}, {human.HumanizedBytes(len(img_data))}')
     # create the metadata

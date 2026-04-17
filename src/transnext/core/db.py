@@ -368,6 +368,30 @@ class AIDatabase:
     """
     return _DBLabel(self._db)
 
+  def Raw(self, raw_hash: str) -> set[str] | None:
+    """Get set of image hashes that share the same raw hash.
+
+    Args:
+      raw_hash: raw hash to look up
+
+    Returns:
+      Set of image hashes that share the same raw hash, or None if not found
+
+    """
+    return set(self._raws[raw_hash]) if raw_hash in self._raws else None
+
+  def Path(self, path: str) -> str | None:
+    """Get the image hash that corresponds to the given path.
+
+    Args:
+      path: path to look up
+
+    Returns:
+      hash of the image that has this path, or None if not found
+
+    """
+    return self._paths.get(path)
+
   @property
   def output(self) -> pathlib.Path | None:
     """Get current output directory for generated images.
@@ -602,6 +626,40 @@ class AIDatabase:
     # TODO: add to indexes without raising?
     self._ComputeIndexes()
     return (db_entry, img_bytes)
+
+  def Reproduce(self, img_hash: str, api: APIProtocol) -> tuple[DBImageType, bytes]:
+    """Reproduce an image by its hash, using the metadata in the DB.
+
+    Args:
+      img_hash: The hash of the image to reproduce
+      api: APIProtocol instance to use for making the API call
+
+    Returns:
+      A tuple containing the new DBImageType object and the raw image data.
+
+    Raises:
+      Error: on error
+
+    """
+    if img_hash not in self._db['images']:
+      raise Error(f'Image with hash {img_hash} not found in DB')
+    old_entry: DBImageType = self._db['images'][img_hash]
+    if not old_entry['ai_meta']:
+      raise Error(f'Image with hash {img_hash} does not have AI metadata, cannot reproduce')
+    meta: AIMetaType = copy.deepcopy(old_entry['ai_meta'])
+    # we have the model?
+    if meta['model_hash'] not in self._db['models']:
+      raise Error(f'Model with hash {meta["model_hash"]} not found in DB models')
+    # try to reproduce
+    new_entry: DBImageType
+    img_bytes: bytes
+    new_entry, img_bytes = api.Txt2Img(
+      self._db['models'][meta['model_hash']].copy(), meta, dir_root=self.output
+    )
+    self._db['images'][new_entry['hash']] = copy.deepcopy(new_entry)  # add to DB images
+    # TODO: add to indexes without raising?
+    self._ComputeIndexes()
+    return (new_entry, img_bytes)
 
   def Sync(self, *, add_dir: pathlib.Path | str | None = None) -> None:  # noqa: C901, PLR0912, PLR0914, PLR0915
     """Go over all known image dirs, check for new/deleted images, update DB accordingly.
