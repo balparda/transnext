@@ -137,7 +137,7 @@ For development, see [Development Setup](#development-setup).
 
 ### What this tool is
 
-TransNext is a CLI tool for generating AI images using Stable Diffusion SDXL models via the [SDNext](https://github.com/vladmandic/sdnext) API. It provides rich control over generation parameters (prompts, sampler, CFG scale, seed, dimensions, CLIP skip, etc.), stores every generated image along with its full generation metadata in an optionally-encrypted local database, and can sync/import existing image collections from multiple directories — detecting duplicates, parsing embedded SDNext/A1111 PNG metadata, and keeping track of file locations.
+TransNext is a CLI tool for generating AI images using Stable Diffusion SDXL models via the [SDNext](https://github.com/vladmandic/sdnext) API. It provides rich control over generation parameters (prompts, sampler, CFG scale/end/rescale, seed, variation seed, dimensions, CLIP skip, scheduler options, FreeU scaling, LoRA tracking, etc.), stores every generated image along with its full generation metadata in an optionally-encrypted local database, and can sync/import existing image collections from multiple directories — detecting duplicates, parsing embedded SDNext/A1111 PNG metadata, and keeping track of file locations.
 
 ### What this tool is not
 
@@ -154,9 +154,14 @@ TransNext is a CLI tool for generating AI images using Stable Diffusion SDXL mod
 - **Model hash** — SHA-256 of the model weights file on disk, used to identify which model generated an image
 - **CFG scale** — Classifier-Free Guidance scale; controls how strongly the image follows the prompt (1.0-30.0)
 - **CFG end** — Fraction of total steps at which CFG guidance stops being applied (0.0-1.0)
-- **CLIP skip** — Number of CLIP layers to skip during prompt encoding (1-5)
-- **Sampler** — The diffusion sampling algorithm (Euler, Euler a, UniPC, DPM SDE, DPM++ SDE, DPM++ 2M SDE)
+- **CFG rescale** — Reduces overexposure/oversaturation tendency at high CFG values (0.0-1.0)
+- **CLIP skip** — Number of CLIP layers to skip during prompt encoding (1-12)
+- **Sampler** — The diffusion sampling algorithm (50+ options; e.g., Euler, DPM++ SDE, UniPC, Heun, LCM)
 - **Parser** — The prompt attention/weighting parser (native, compel, xhinker, a1111, fixed)
+- **Scheduler options** — Controls for the noise schedule: sigma type, spacing, beta schedule, and prediction type
+- **FreeU** — Backbone and skip-connection feature scaling that can improve generation quality without retraining (b1, b2, s1, s2 parameters)
+- **Variation seed** — A secondary seed that can be blended with the primary seed at a configurable strength to produce subtle variations of an image
+- **LoRA / LyCORIS** — Lightweight model adaptation layers; detected and tracked from both API model inventory and embedded PNG metadata
 
 ### Inputs and outputs
 
@@ -181,7 +186,7 @@ TransNext is a CLI tool for generating AI images using Stable Diffusion SDXL mod
 - A running SDNext server is accessible at the configured host:port
 - The user has filesystem read/write access to the output directory and image source directories
 - Encoding: UTF-8
-- Image dimensions must be multiples of 16
+- Image dimensions must be multiples of 16 (default: 1024x1024 for SDXL)
 
 ### Known limitations
 
@@ -209,7 +214,7 @@ Generate with more control:
 
 ```sh
 poetry run gen -vv --out ~/my-images make "dark knight in the rain" \
-  -n "batman, comic" --cfg 7.5 -m SDXL_model -i 30 --sampler "Euler a" -w 1024 -h 1024
+  -n "batman, comic" --cfg 7.5 -m SDXL_model -i 30 --sampler "Euler a" -w 800 -h 800
 ```
 
 Sync existing images into the database:
@@ -231,7 +236,7 @@ This will:
 
 1. Connect to the SDNext API
 2. Look up the model by name (fetching from the server if not in the DB)
-3. Generate a 512x512 image with the given parameters
+3. Generate a 1024x1024 image with the given parameters
 4. Save the PNG to `~/foo/bar/YYYY-MM-DD/<hash>-<timestamp>-<model>-<cfg>-<steps>-<w>-<h>-<seed>-<img-hash>.png`
 5. Store the full metadata in the encrypted database
 
@@ -276,22 +281,35 @@ gen [global flags] <command> [command flags] [args]
 | (argument) `POSITIVE_PROMPT` | Positive prompt string (required) | — |
 | `-n`, `--negative` | Negative prompt string | none |
 | `-i`, `--iterations` | Number of generation steps (1-200) | `20` |
-| `-s`, `--seed` | Random seed (2-2147483647); omit for random | random |
-| `-w`, `--width` | Image width in pixels (16-4096) | `512` |
-| `-h`, `--height` | Image height in pixels (16-4096) | `512` |
-| `--sampler` | Sampler method: Euler, Euler a, UniPC, DPM SDE, DPM++ SDE, DPM++ 2M SDE | `DPM++ SDE` |
+| `-s`, `--seed` | Random seed (1-18446744073709551615); omit for random | random |
+| `--vseed` | Variation seed (1-18446744073709551615); omit to disable variation | none |
+| `--vstrength` | Variation strength, how much to mix variation seed with base seed (0.0-1.0) | `0.5` |
+| `-w`, `--width` | Image width in pixels (16-4096, must be multiple of 16) | `1024` |
+| `-h`, `--height` | Image height in pixels (16-4096, must be multiple of 16) | `1024` |
+| `--sampler` | Sampler method (50+ options; e.g., `DPM++ SDE`, `Euler`, `UniPC`, `Heun`, `LCM`, etc.) | `DPM++ SDE` |
 | `--parser` | Query parser: native, compel, xhinker, a1111, fixed | `a1111` |
 | `-m`, `--model` | Model name (substring match against known models) | `XLB_v10` |
-| `--clip` | CLIP skip value (1-5) | `1` |
+| `--clip` | CLIP skip value (1-12) | `1` |
 | `-g`, `--cfg` | CFG scale / guidance scale (1.0-30.0) | `6.0` |
 | `--cfg-end` | CFG guidance end fraction (0.0-1.0) | `0.8` |
+| `--cfg-rescale` | CFG rescale to reduce overexposure at high CFG (0.0-1.0) | `0.0` |
+| `--sigma` | Scheduler sigma schedule: default, karras, betas, exponential, lambdas, flowmatch | none (SDNext default) |
+| `--spacing` | Scheduler spacing: default, linspace, leading, trailing | none (SDNext default) |
+| `--beta` | Scheduler beta schedule: default, linear, scaled, cosine, sigmoid, laplace | none (SDNext default) |
+| `--prediction` | Scheduler prediction type: default, epsilon, sample, v_prediction, flow_prediction | none (SDNext default) |
+| `--freeu`/`--no-freeu` | Enable/disable FreeU backbone and skip feature scaling | `--freeu` |
+| `--b1` | FreeU b1 backbone feature scale (0.0-3.0) | `1.05` |
+| `--b2` | FreeU b2 backbone feature scale (0.0-3.0) | `1.1` |
+| `--s1` | FreeU s1 skip feature scale (0.0-3.0) | `0.55` |
+| `--s2` | FreeU s2 skip feature scale (0.0-3.0) | `0.45` |
 | `--backup`/`--no-backup` | Also save a backup on the SDNext server | `--no-backup` |
 
 ### `sync` command
 
-| Argument | Description | Default |
+| Argument/Flag | Description | Default |
 | --- | --- | --- |
 | `[ADD_DIR]` | Optional directory to add and sync | none (sync known dirs only) |
+| `--force-api`/`--no-force-api` | Require SDNext API connection; if `--no-force-api` (default), will try to connect but proceed standalone if unavailable | `--no-force-api` |
 
 ### CLI Commands Documentation
 
@@ -461,6 +479,8 @@ The CLI layer (`gen.py` + `cli/`) handles argument parsing and wiring. The core 
 │   ├── gen_test.py
 │   ├── cli/
 │   ├── core/
+│   ├── data/
+│   │   └── images/               ⟸ Real test images with embedded metadata
 │   └── utils/
 └── tests_integration/
     └── test_installed_cli.py     ⟸ Integration tests (wheel build + install + smoke)
@@ -599,6 +619,8 @@ poetry run gen sync ~/existing/images
 ```
 
 ### Testing
+
+The test suite has 186 unit tests across 6 test files. Real PNG test images with embedded SDNext/A1111 metadata live in `tests/data/images/` for end-to-end parsing validation.
 
 #### Unit tests / Coverage
 
@@ -812,6 +834,9 @@ The `-vvv` flag enables DEBUG-level logging, which will show full API payloads, 
 - **A1111** — [Automatic1111 web UI](https://github.com/AUTOMATIC1111/stable-diffusion-webui), the original Stable Diffusion web UI; SDNext is a fork/successor
 - **CFG** — Classifier-Free Guidance; the mechanism that steers generation toward the prompt
 - **CLIP** — Contrastive Language-Image Pre-training; the text encoder used by Stable Diffusion
+- **FreeU** — A technique for improving generation quality by scaling backbone and skip-connection features without additional training
+- **LoRA** — Low-Rank Adaptation; lightweight fine-tuning layers that modify model behavior
+- **LyCORIS** — A more flexible variant of LoRA with additional network module types
 - **SDXL** — Stable Diffusion XL; a larger, higher-quality Stable Diffusion model architecture
 - **SDNext** — [SD.Next](https://github.com/vladmandic/sdnext); the Stable Diffusion server this tool communicates with
 - **txt2img** — Text-to-image generation; creating an image from a text prompt

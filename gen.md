@@ -46,34 +46,85 @@ Usage: gen make [OPTIONS] POSITIVE_PROMPT
 │ *    positive_prompt      TEXT  Query input string to guide the image generation, positive prompt; "user prompt"                              │
 ╰─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
 ╭─ Options ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
-│ --negative    -n                 TEXT                                                  Negative prompt to guide the image generation; "negative         │
-│                                                                                        prompt"; default: no negative prompt                             │
-│ --iterations  -i                 INTEGER RANGE [1<=x<=200]                             Number of steps (iterations) for the image generation; 1 ≤ i ≤   │
-│                                                                                        200; default: 20                                                 │
+│ --negative     -n                 TEXT                                                       Negative prompt to guide the image generation; "negative   │
+│                                                                                              prompt"; default: no negative prompt                       │
+│ --iterations   -i                 INTEGER RANGE [1<=x<=200]                                  Number of steps (iterations) for the image generation; 1 ≤ │
+│                                                                                              i ≤ 200; default: 20                                       │
 │                                                                                                                                            │
-│ --seed        -s                 INTEGER RANGE [2<=x<=2147483647]                      Seed for the image generation; 1 < s ≤ 2147483647; if not        │
-│                                                                                        provided (default), a random seed will be used                   │
-│ --width       -w                 INTEGER RANGE [16<=x<=4096]                           Width of the generated image; 16 ≤ i ≤ 4096; default: 512        │
+│ --seed         -s                 INTEGER RANGE [1<=x<=18446744073709551615]                 Seed for the image generation; 0 < s ≤                     │
+│                                                                                              18446744073709551615; if not provided (default), a random  │
+│                                                                                              seed will be used                                          │
+│ --vseed                           INTEGER RANGE [1<=x<=18446744073709551615]                 Variation seed for the image generation; 0 < s ≤           │
+│                                                                                              18446744073709551615; if not provided (default) variation  │
+│                                                                                              seeds will not be used                                     │
+│ --vstrength                       FLOAT RANGE [0.0<=x<=1.0]                                  Variation strength for the image generation, i.e., how     │
+│                                                                                              much to mix the variation seed with the base (regular)     │
+│                                                                                              seed; 0.0 ≤ s ≤ 1.0; default: 0.5; only used if variation  │
+│                                                                                              seed is provided                                           │
 │                                                                                                                                           │
-│ --height      -h                 INTEGER RANGE [16<=x<=4096]                           Height of the generated image; 16 ≤ i ≤ 4096; default: 512       │
-│                                                                                                                                           │
-│ --sampler                        [Euler|Euler a|UniPC|DPM SDE|DPM++ SDE|DPM++ 2M SDE]  Sampler to use for the generation; default: 'DPM++ SDE'          │
-│                                                                                                                                     │
-│ --parser                                            Query parser to use for the generation; default: 'a1111'         │
+│ --width        -w                 INTEGER RANGE [16<=x<=4096]                                Width of the generated image; 16 ≤ i ≤ 4096; default: 1024 │
+│                                                                                                                                          │
+│ --height       -h                 INTEGER RANGE [16<=x<=4096]                                Height of the generated image; 16 ≤ i ≤ 4096; default:     │
+│                                                                                              1024                                                       │
+│                                                                                                                                          │
+│ --sampler                         [UniPC|DDIM|Euler|Euler a|Euler SGM|Euler EDM|Euler        Sampler to use for the generation; default: 'DPM++ SDE'    │
+│                                   FlowMatch|DPM++|DPM++ 2M|DPM++ 3M|DPM++ 1S|DPM++                                                  │
+│                                   SDE|DPM++ 2M SDE|DPM++ 2M EDM|DPM++ Cosine|DPM SDE|DPM++                                                              │
+│                                   Inverse|DPM++ 2M Inverse|DPM++ 3M Inverse|UniPC                                                                       │
+│                                   FlowMatch|DPM2 FlowMatch|DPM2a FlowMatch|DPM2++ 2M                                                                    │
+│                                   FlowMatch|DPM2++ 2S FlowMatch|DPM2++ SDE FlowMatch|DPM2++                                                             │
+│                                   2M SDE FlowMatch|DPM2++ 3M SDE FlowMatch|Heun|Heun                                                                    │
+│                                   FlowMatch|LCM|LCM FlowMatch|DEIS|SA Solver|DC Solver|VDM                                                              │
+│                                   Solver|TCD|TDD|Flash FlowMatch|PeRFlow|UFOGen|BDIA                                                                    │
+│                                   DDIM|PNDM|IPNDM|DDPM|LMSD|KDPM2|KDPM2 a|CMSI|CogX                                                                     │
+│                                   DDIM|DDIM Parallel|DDPM Parallel|DPM adaptive|DPM                                                                     │
+│                                   fast|DPM++ 2S a|DPM++ 2S a Karras|DPM++ 2M Karras|DPM++                                                               │
+│                                   3M SDE|DPM++ 3M SDE Karras]                                                                                           │
+│ --parser                                                  Query parser to use for the generation; default: 'a1111'   │
 │                                                                                                                                         │
-│ --model       -m                 TEXT                                                  Model key to use for the generation; default: "_v10VAEFix"       │
+│ --model        -m                 TEXT                                                       Model key to use for the generation; default: "_v10VAEFix" │
 │                                                                                                                                       │
-│ --clip                           INTEGER RANGE [1<=x<=5]                               Clip skip value; 1 ≤ c ≤ 5; default: 1               │
-│ --cfg         -g                 FLOAT RANGE [1.0<=x<=30.0]                            CFG scale value (guidance scale); 1.0 ≤ c ≤ 30.0; default: 6.0   │
+│ --clip                            INTEGER RANGE [1<=x<=12]                                   Clip skip value; 1 ≤ c ≤ 12; default: 1        │
+│ --cfg          -g                 FLOAT RANGE [1.0<=x<=30.0]                                 CFG scale value (guidance scale); 1.0 ≤ c ≤ 30.0; default: │
+│                                                                                              6.0                                                        │
 │                                                                                                                                           │
-│ --cfg-end                        FLOAT RANGE [0.0<=x<=1.0]                             CFG scale application end (guidance end); 0.0 ≤ c ≤ 1.0;         │
-│                                                                                        default: 0.8                                                     │
+│ --cfg-end                         FLOAT RANGE [0.0<=x<=1.0]                                  CFG scale application end (guidance end); 0.0 ≤ c ≤ 1.0;   │
+│                                                                                              default: 0.8                                               │
 │                                                                                                                                           │
-│ --backup          --no-backup                                                          If True, SDNext API server will save a backup copy of the        │
-│                                                                                        generated images to its default local storage; default: False    │
-│                                                                                        (images will only be saved in the TransNext DB)                  │
+│ --cfg-rescale                     FLOAT RANGE [0.0<=x<=1.0]                                  Adjusts the CFG guided result to reduce the tendency of    │
+│                                                                                              high CFG to cause overexposure / oversaturation / burned   │
+│                                                                                              highlights / harsh color shifts; you usually only want     │
+│                                                                                              this for higher CFG scales `-g/--cfg` (e.g., > 7.0); 0.0 ≤ │
+│                                                                                              r ≤ 1.0; default: 0.0                                      │
+│                                                                                                                                           │
+│ --sigma                                  Sampler sigma schedule to use for the generation; default: │
+│                                                                                              None (SDNext default)                                      │
+│ --spacing                                                 Sampler spacing schedule to use for the generation;        │
+│                                                                                              default: None (SDNext default)                             │
+│ --beta                                         Sampler beta schedule to use for the generation; default:  │
+│                                                                                              None (SDNext default)                                      │
+│ --prediction                            Sampler prediction type to use for the generation;         │
+│                                                                                              default: None (SDNext default)                             │
+│ --freeu            --no-freeu                                                                Enable/disable FreeU backbone and skip feature scaling;    │
+│                                                                                              default: True                                              │
+│                                                                                                                                         │
+│ --b1                              FLOAT RANGE [0.0<=x<=3.0]                                  FreeU b1 backbone feature scale; 0.0 ≤ b ≤ 3.0; default:   │
+│                                                                                              1.05                                                       │
+│                                                                                                                                          │
+│ --b2                              FLOAT RANGE [0.0<=x<=3.0]                                  FreeU b2 backbone feature scale; 0.0 ≤ b ≤ 3.0; default:   │
+│                                                                                              1.1                                                        │
+│                                                                                                                                           │
+│ --s1                              FLOAT RANGE [0.0<=x<=3.0]                                  FreeU s1 skip feature scale; 0.0 ≤ s ≤ 3.0; reduce         │
+│                                                                                              over-smoothing / unnatural detail; default: 0.55           │
+│                                                                                                                                          │
+│ --s2                              FLOAT RANGE [0.0<=x<=3.0]                                  FreeU s2 skip feature scale; 0.0 ≤ s ≤ 3.0; reduce         │
+│                                                                                              over-smoothing / unnatural detail; default: 0.45           │
+│                                                                                                                                          │
+│ --backup           --no-backup                                                               If True, SDNext API server will save a backup copy of the  │
+│                                                                                              generated images to its default local storage; default:    │
+│                                                                                              False (images will only be saved in the TransNext DB)      │
 │                                                                                                                                     │
-│ --help                                                                                 Show this message and exit.                                      │
+│ --help                                                                                       Show this message and exit.                                │
 ╰─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
                                                                                                                                                            
  Example:                                                                                                                                                  
@@ -109,7 +160,10 @@ Usage: gen sync [OPTIONS] [ADD_DIR]
 │   add_dir      [ADD_DIR]  Optional directory to add to the sync process; default: no new dir, just sync known ones.                                     │
 ╰─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
 ╭─ Options ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
-│ --help          Show this message and exit.                                                                                                             │
+│ --force-api    --no-force-api      If True, SDNext API server will be required; if False (default) will still TRY to connect to API, but if not found   │
+│                                    will proceed standalone                                                                                              │
+│                                                                                                                                  │
+│ --help                             Show this message and exit.                                                                                          │
 ╰─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
                                                                                                                                                            
  Example:                                                                                                                                                  
