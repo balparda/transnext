@@ -13,6 +13,7 @@ from transcrypto.utils import logging as cli_logging
 from typer import testing
 
 from transnext import gen
+from transnext.cli import make
 from transnext.core import base
 
 
@@ -49,6 +50,11 @@ def _MockDB() -> mock.MagicMock:
   mock_db_inst.GetModelHash.return_value = 'model-hash'
   mock_db_inst.Txt2Img.return_value = (mock.MagicMock(), b'img-data')
   return mock_db_inst
+
+
+def testNotForgotRecordingOn() -> None:
+  """Make sure we don't submit  code with _DEBUG_RECORD accidentally left on."""
+  assert not make._DEBUG_RECORD
 
 
 @mock.patch('transnext.core.sdnapi.API')

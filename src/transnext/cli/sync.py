@@ -47,7 +47,7 @@ def Sync(  # documentation is help/epilog/args # noqa: D103
         f'Failed to connect to SDNext API server (to run with no API use `--no-force-api`): {err}'
       ) from err
     logging.warning(f'Failed to connect to SDNext API server, proceeding without API: {err}')
-  with db.AIDatabase(config.appconfig, read_only=not config.db) as ai_db:
-    ai_db.Sync(add_dir=add_dir, api=api)
+  with db.AIDatabase(config.appconfig, read_only=not config.db, api=api) as ai_db:
+    ai_db.Sync(add_dir=add_dir)
   # DB is closed and saved
   config.console.print()

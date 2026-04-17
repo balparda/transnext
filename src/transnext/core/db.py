@@ -258,6 +258,7 @@ class AIDatabase:
     aes_key: aes.AESKey | None = None,
     safe_save: bool = True,
     compress_save: bool = False,
+    api: APIProtocol | None = None,
   ) -> None:
     """Initialize the AI Database.
 
@@ -270,6 +271,7 @@ class AIDatabase:
           the file directly
       compress_save: (default False) Whether to compress the DB file when saving; if True, it will
           save as a compressed file
+      api: (default None) APIProtocol instance to use for fetching available models automatically
 
     """
     self._config: app_config.AppConfig = config
@@ -290,6 +292,11 @@ class AIDatabase:
         logging.warning(f'DB file not found, will start fresh, {self.label}')
     if self._read_only:
       logging.warning('ATTENTION: AIDatabase opened in read-only mode, changes will not be saved!')
+    if api:
+      logging.info('API provided: refreshing DB models/lora')
+      self.RefreshDBModels(api)
+      self.RefreshDBLora(api)
+      self.Save()
 
   def __enter__(self) -> Self:
     """Context manager entry, returns self.
@@ -563,15 +570,11 @@ class AIDatabase:
     self._db['images'][db_entry['hash']] = copy.deepcopy(db_entry)  # add to DB images
     return (db_entry, img_bytes)
 
-  def Sync(  # noqa: C901, PLR0912, PLR0914, PLR0915
-    self, *, add_dir: pathlib.Path | str | None = None, api: APIProtocol | None = None
-  ) -> None:
+  def Sync(self, *, add_dir: pathlib.Path | str | None = None) -> None:  # noqa: C901, PLR0912, PLR0914, PLR0915
     """Go over all known image dirs, check for new/deleted images, update DB accordingly.
 
     Args:
       add_dir: (default None) Optional additional dir to add to known image sources and sync with
-      api: (default None) APIProtocol instance to use for fetching available models automatically;
-          if None, it will only search in the existing DB models and will not attempt to fetch
 
     Raises:
       Error: if the provided path is invalid or other errors
@@ -580,11 +583,6 @@ class AIDatabase:
     add_dir = pathlib.Path(add_dir).expanduser().resolve() if add_dir else None
     if add_dir and (not add_dir.exists() or not add_dir.is_dir()):
       raise Error(f'Provided directory for sync does not exist: {add_dir}')
-    # if API is provided, we will refresh the DB models first
-    if api:
-      logging.info('API provided for sync, refreshing DB models first')
-      self.RefreshDBModels(api)
-      self.RefreshDBLora(api)
     # add the new dir to known sources if not already present
     if add_dir:
       str_add_dir: str = str(add_dir)

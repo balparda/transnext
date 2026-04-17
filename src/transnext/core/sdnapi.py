@@ -88,12 +88,15 @@ class APIConnectionError(Error, ConnectionError):
 class API(db.APIProtocol):
   """SDNext API client."""
 
-  def __init__(self, api_url: str, *, server_save_images: bool = False) -> None:
+  def __init__(
+    self, api_url: str, *, server_save_images: bool = False, record: bool = False
+  ) -> None:
     """Initialize SDNext API client.
 
     Args:
       api_url: Base URL of the SDNext API, e.g. "http://127.0.0.1:5000"
       server_save_images: Whether if the server will save a copy of the images too (default False)
+      record: Whether to record API calls and responses (default False)
 
     Raises:
       APIConnectionError: If there is a connection error to the SDNext API.
@@ -101,6 +104,8 @@ class API(db.APIProtocol):
     """
     self._api_url: str = api_url
     self._server_save_images: bool = server_save_images
+    self._record: bool = record
+    self._call_record: list[tbase.JSONDict] = []
     commit, updated = self.ServerVersion()
     if not commit or not updated:
       raise APIConnectionError(f'Failed to get version from SDNext API: {commit!r}, {updated!r}')
@@ -108,6 +113,8 @@ class API(db.APIProtocol):
     logging.info(
       f'API/{commit}/{updated} @ {self._api_url}{" + SAVE" if self._server_save_images else ""}'
     )
+    if record:
+      logging.warning('Recording of API calls and responses is enabled!')
 
   @property
   def version(self) -> str:
@@ -130,8 +137,26 @@ class API(db.APIProtocol):
     """  # noqa: DOC502
     version, endpoint, method = _API_CALL_MATRIX[api_call]
     return _Call(
-      method, self._api_url, version.value + endpoint.value, payload.copy() if payload else None
+      method,
+      self._api_url,
+      version.value + endpoint.value,
+      payload.copy() if payload else None,
+      record_list=self._call_record if self._record else None,
     )
+
+  def SaveRecordToFile(self, path: pathlib.Path) -> None:
+    """Save recorded API calls and responses to a JSON file.
+
+    Args:
+      path: Path to the JSON file to save the record to.
+
+    """
+    if not self._record or not self._call_record:
+      logging.error('No call recorded, nothing to save.')
+      return
+    with path.open('w', encoding='utf-8') as obj:
+      json.dump(self._call_record, obj, indent=2)
+    logging.warning(f'Saved API call record to {path}')
 
   def ServerVersion(self) -> tuple[str, str]:
     """Get SDNext API server version info.
@@ -976,6 +1001,8 @@ def _Call(
   sd_url: str,
   endpoint: str,
   payload: tbase.JSONDict | None = None,
+  *,
+  record_list: list[tbase.JSONDict] | None = None,
 ) -> tbase.JSONValue:
   """Call SDNext API endpoint with given payload.
 
@@ -984,6 +1011,7 @@ def _Call(
     sd_url: Base URL of the SDNext API, e.g. "http://127.0.0.1:5000"
     endpoint: API endpoint to call
     payload: JSON-serializable payload to send in the request body (default is None)
+    record_list: (default None) optional MUTABLE list to append the call and response data
 
   Returns:
     The JSON response from the API as a dictionary.
@@ -999,7 +1027,20 @@ def _Call(
     req: requests.Response = method(full_url, json=payload, timeout=300, verify=False)
     if req.status_code not in _SUCCESS_STATUSES:
       raise Error(f'Status {req.status_code} {req.reason} - {req.text}')  # noqa: TRY301
-    return cast('tbase.JSONValue', req.json())
+    response: tbase.JSONValue = cast('tbase.JSONValue', req.json())
+    if record_list is not None:
+      record_list.append(
+        {
+          'call': {
+            'method': method.__name__.upper(),
+            'url': full_url,
+            'payload': copy.deepcopy(payload),
+          },
+          'response': copy.deepcopy(response),
+        }
+      )
+      logging.info(f'Call recorded: {method.__name__.upper()}/{full_url}')
+    return response
   except requests.exceptions.ConnectionError as err:
     raise APIConnectionError(f'Failed to connect to SDNext API {method} {full_url}') from err
   except Exception as err:

@@ -212,8 +212,8 @@ SD_DEFAULT_FREEU: bool = True  # FreeU enabled by default
 SD_MAX_FREEU: float = 300  # 3.0 max FreeU scale (times 100 for CLI option)
 SD_DEFAULT_FREEU_B1: int = 105  # FreeU b1 backbone scale default = 1.05 (times 100 for int storage)
 SD_DEFAULT_FREEU_B2: int = 110  # FreeU b2 backbone scale default = 1.10 (times 100 for int storage)
-SD_DEFAULT_FREEU_S1: int = 55  # FreeU s1 skip scale default = 0.55 (times 100 for int storage)
-SD_DEFAULT_FREEU_S2: int = 45  # FreeU s2 skip scale default = 0.45 (times 100 for int storage)
+SD_DEFAULT_FREEU_S1: int = 75  # FreeU s1 skip scale default = 0.55 (times 100 for int storage)
+SD_DEFAULT_FREEU_S2: int = 65  # FreeU s2 skip scale default = 0.45 (times 100 for int storage)
 SD_DEFAULT_QUERY_PARSER: QueryParser = QueryParser.A1111
 SD_DEFAULT_SAMPLER: Sampler = Sampler.DPM_P_SDE
 SD_DEFAULT_DENOISING: int = 50  # IMG2IMG: how much to de-noise 0.5 (multiply by 100 for CLI option)
