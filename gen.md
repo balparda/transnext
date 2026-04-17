@@ -115,10 +115,10 @@ Usage: gen make [OPTIONS] POSITIVE_PROMPT
 │                                                                                              1.1                                                        │
 │                                                                                                                                           │
 │ --s1                              FLOAT RANGE [0.0<=x<=3.0]                                  FreeU s1 skip feature scale; 0.0 ≤ s ≤ 3.0; reduce         │
-│                                                                                              over-smoothing / unnatural detail; default: 0.55           │
+│                                                                                              over-smoothing / unnatural detail; default: 0.75           │
 │                                                                                                                                          │
 │ --s2                              FLOAT RANGE [0.0<=x<=3.0]                                  FreeU s2 skip feature scale; 0.0 ≤ s ≤ 3.0; reduce         │
-│                                                                                              over-smoothing / unnatural detail; default: 0.45           │
+│                                                                                              over-smoothing / unnatural detail; default: 0.65           │
 │                                                                                                                                          │
 │ --backup           --no-backup                                                               If True, SDNext API server will save a backup copy of the  │
 │                                                                                              generated images to its default local storage; default:    │
