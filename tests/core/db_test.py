@@ -138,8 +138,16 @@ def testDefaults() -> None:
 def testOverrides() -> None:
   """Factory applies overrides."""
   result: db._DBType = db._DBTypeFactory({'version': 5, 'image_output_dir': '/foo'})
-  assert result['version'] == 5
-  assert result['image_output_dir'] == '/foo'
+  assert result.pop('last_save') > 1000000  # type: ignore[misc]
+  assert result == {
+    'db_version': '1.0.0',
+    'image_output_dir': '/foo',
+    'images': {},
+    'known_image_sources': [],
+    'lora': {},
+    'models': {},
+    'version': 5,
+  }
 
 
 # ─── ImageOrigin ─────────────────────────────────────────────────────────────
@@ -211,8 +219,36 @@ def testDefaultsWithRandomSeed() -> None:
 def testOverridesWithFixedSeed() -> None:
   """Factory applies overrides including a fixed seed."""
   result: db.AIMetaType = db.AIMetaTypeFactory({'seed': 42, 'positive': 'hello'})
-  assert result['seed'] == 42
-  assert result['positive'] == 'hello'
+  assert result == {
+    'cfg_end': base.SD_DEFAULT_CFG_END,
+    'cfg_rescale': base.SD_DEFAULT_CFG_RESCALE,
+    'cfg_scale': base.SD_DEFAULT_CFG_SCALE,
+    'cfg_skip': None,
+    'clip_skip': base.SD_DEFAULT_CLIP_SKIP,
+    'freeu': (
+      base.SD_DEFAULT_FREEU_B1,
+      base.SD_DEFAULT_FREEU_B2,
+      base.SD_DEFAULT_FREEU_S1,
+      base.SD_DEFAULT_FREEU_S2,
+    ),
+    'height': base.SD_DEFAULT_HEIGHT,
+    'img2img': None,
+    'lora': {},
+    'model_hash': None,
+    'negative': None,
+    'ngms': None,
+    'parser': base.SD_DEFAULT_QUERY_PARSER.value,
+    'positive': 'hello',
+    'sampler': base.SD_DEFAULT_SAMPLER.value,
+    'sch_beta': None,
+    'sch_sigma': None,
+    'sch_spacing': None,
+    'sch_type': None,
+    'seed': 42,
+    'steps': base.SD_DEFAULT_ITERATIONS,
+    'v_seed': None,
+    'width': base.SD_DEFAULT_WIDTH,
+  }
 
 
 @pytest.mark.parametrize('seed_val', [None, -1, 0])
@@ -251,8 +287,10 @@ def testAIImg2ImgType() -> None:
     input_hash='abc123',
     denoising=50,
   )
-  assert img2img['input_hash'] == 'abc123'
-  assert img2img['denoising'] == 50
+  assert img2img == {
+    'input_hash': 'abc123',
+    'denoising': 50,
+  }
 
 
 # ─── AIDatabase ──────────────────────────────────────────────────────────────
@@ -559,18 +597,22 @@ def testParseMetadataSDNextFormat() -> None:
     'Model: SDXL_17_P-IND_indecentRealismFor_v20, Model hash: 335da0800c'
   )
   result: dict[str, str] = db._ParseImageMetadata(text)
-  assert result['positive'] == 'positive prompt text'
-  assert result['negative'] == 'negative prompt text'
-  assert result['steps'] == '10'
-  assert result['width'] == '256'
-  assert result['height'] == '256'
-  assert result['sampler'] == 'DPM++ SDE'
-  assert result['seed'] == '666'
-  assert result['cfg scale'] == '15.7'
-  assert result['cfg end'] == '0.3'
-  assert result['parser'] == 'a1111'
-  assert result['model hash'] == '335da0800c'
-  assert result['model'] == 'SDXL_17_P-IND_indecentRealismFor_v20'
+  assert result == {
+    'app': 'SD.Next',
+    'cfg end': '0.3',
+    'cfg scale': '15.7',
+    'height': '256',
+    'model': 'SDXL_17_P-IND_indecentRealismFor_v20',
+    'model hash': '335da0800c',
+    'negative': 'negative prompt text',
+    'parser': 'a1111',
+    'positive': 'positive prompt text',
+    'sampler': 'DPM++ SDE',
+    'scheduler': 'Foo',
+    'seed': '666',
+    'steps': '10',
+    'width': '256',
+  }
 
 
 def testParseMetadataUserCommentFormat() -> None:
@@ -583,28 +625,35 @@ def testParseMetadataUserCommentFormat() -> None:
     'RNG: CPU, NGMS: 2.5, Version: v1.7.0-12-g61905b06'
   )
   result: dict[str, str] = db._ParseImageMetadata(text)
-  assert result['positive'] == 'positive prompt text'
-  assert result['negative'] == 'negative prompt text'
-  assert result['steps'] == '80'
-  assert result['sampler'] == 'UniPC'
-  assert result['cfg scale'] == '7'
-  assert result['seed'] == '3767527812'
-  assert result['width'] == '832'
-  assert result['height'] == '1216'
-  assert result['model hash'] == 'dce7eb8449'
-  assert result['model'] == 'SDXL_05_realisticFreedomSFW_alpha'
+  assert result == {
+    'cfg scale': '7',
+    'height': '1216',
+    'model': 'SDXL_05_realisticFreedomSFW_alpha',
+    'model hash': 'dce7eb8449',
+    'negative': 'negative prompt text',
+    'ngms': '2.5',
+    'positive': 'positive prompt text',
+    'rng': 'CPU',
+    'sampler': 'UniPC',
+    'seed': '3767527812',
+    'steps': '80',
+    'version': 'v1.7.0-12-g61905b06',
+    'width': '832',
+  }
 
 
 def testParseMetadataNoNegativePrompt() -> None:
   """Parse metadata with no negative prompt line."""
   text = 'just a positive prompt\nSteps: 5, Seed: 1234, Sampler: Euler, Size: 64x64'
   result: dict[str, str] = db._ParseImageMetadata(text)
-  assert result['positive'] == 'just a positive prompt'
-  assert 'negative' not in result
-  assert result['steps'] == '5'
-  assert result['seed'] == '1234'
-  assert result['width'] == '64'
-  assert result['height'] == '64'
+  assert result == {
+    'height': '64',
+    'positive': 'just a positive prompt',
+    'sampler': 'Euler',
+    'seed': '1234',
+    'steps': '5',
+    'width': '64',
+  }
 
 
 def testParseMetadataMultilinePositive() -> None:
@@ -613,8 +662,15 @@ def testParseMetadataMultilinePositive() -> None:
     'first line\nsecond line\nNegative prompt: neg\nSteps: 3, Seed: 7, Sampler: Euler, Size: 32x32'
   )
   result: dict[str, str] = db._ParseImageMetadata(text)
-  assert result['positive'] == 'first line\nsecond line'
-  assert result['negative'] == 'neg'
+  assert result == {
+    'height': '32',
+    'negative': 'neg',
+    'positive': 'first line\nsecond line',
+    'sampler': 'Euler',
+    'seed': '7',
+    'steps': '3',
+    'width': '32',
+  }
 
 
 def testParseMetadataMultilineNegative() -> None:
@@ -628,14 +684,19 @@ def testParseMetadataMultilineNegative() -> None:
     'Model hash: 335da0800c'
   )
   result: dict[str, str] = db._ParseImageMetadata(text)
-  assert result['positive'] == '(score_9), (score_8_up), score_7_up, source_photo,\nfoo bar'
-  assert result['negative'] == '[[[score_6]]], [[score_5]], [score_4], score_1,\nbaz'
-  assert result['steps'] == '10'
-  assert result['width'] == '1024'
-  assert result['height'] == '1536'
-  assert result['sampler'] == 'DPM++ SDE'
-  assert result['seed'] == '4039644363'
-  assert result['model hash'] == '335da0800c'
+  assert result == {
+    'cfg end': '0.8',
+    'cfg scale': '7',
+    'height': '1536',
+    'model': 'SDXL_17_P-IND_indecentRealismFor_v20',
+    'model hash': '335da0800c',
+    'negative': '[[[score_6]]], [[score_5]], [score_4], score_1,\nbaz',
+    'positive': '(score_9), (score_8_up), score_7_up, source_photo,\nfoo bar',
+    'sampler': 'DPM++ SDE',
+    'seed': '4039644363',
+    'steps': '10',
+    'width': '1024',
+  }
 
 
 def testParseMetadataEmptyNegative() -> None:
@@ -647,19 +708,24 @@ def testParseMetadataEmptyNegative() -> None:
     'Model: SDXL_16_P-TME_tamePonyThe_v25, Model hash: ae50f0a320'
   )
   result: dict[str, str] = db._ParseImageMetadata(text)
-  assert result['positive'] == 'poor'
-  assert not result['negative']
-  assert result['steps'] == '20'
-  assert result['width'] == '1000'
-  assert result['height'] == '600'
-  assert result['model hash'] == 'ae50f0a320'
+  assert result == {
+    'cfg scale': '7',
+    'height': '600',
+    'model': 'SDXL_16_P-TME_tamePonyThe_v25',
+    'model hash': 'ae50f0a320',
+    'negative': '',
+    'positive': 'poor',
+    'sampler': 'DPM++ SDE',
+    'seed': '2989026014',
+    'steps': '20',
+    'width': '1000',
+  }
 
 
 def testParseMetadataEmptyString() -> None:
   """Parse empty metadata string returns empty positive."""
   result: dict[str, str] = db._ParseImageMetadata('')
-  assert not result['positive']
-  assert 'negative' not in result
+  assert result == {'positive': ''}
 
 
 # ─── _ModelsRef ──────────────────────────────────────────────────────────────
@@ -716,19 +782,60 @@ def testImportImageFilePNGWithMetadata(tmp_path: pathlib.Path) -> None:
     models,
     loras,
   )
-  assert entry['hash'] == img_hash
-  assert entry['path'] == str(img_path)
-  assert entry['width'] == 64
-  assert entry['height'] == 64
-  assert entry['format'] == base.ImageFormat.PNG.value
-  assert entry['size'] == len(img_bytes)
-  assert entry['ai_meta'] is not None
-  assert entry['ai_meta']['positive'] == 'a nice photo'
-  assert entry['ai_meta']['negative'] == 'ugly'
-  assert entry['ai_meta']['steps'] == 20
-  assert entry['ai_meta']['seed'] == 12345
-  assert entry['ai_meta']['cfg_scale'] == 75  # 7.5 x 10
-  assert entry['ai_meta']['model_hash'] == 'abc123-full-hash'  # prefix resolved
+  # pop variable fields and check them separately
+  assert entry.pop('created_at') > 1000000  # type: ignore[misc]
+  assert entry == {
+    'hash': img_hash,
+    'raw_hash': 'c34fb4331b2d031d7c644860b54a678424c66ef12352fc165a91dc09840d98fd',
+    'path': str(img_path),
+    'alt_path': [],
+    'size': len(img_bytes),
+    'width': 64,
+    'height': 64,
+    'format': base.ImageFormat.PNG.value,
+    'origin': db.ImageOrigin.AIUnknown.value,
+    'version': None,
+    'info': params,
+    'ai_meta': {
+      'cfg_end': 10,
+      'cfg_rescale': 0,
+      'cfg_scale': 75,
+      'cfg_skip': None,
+      'clip_skip': 10,
+      'freeu': None,
+      'height': 64,
+      'img2img': None,
+      'lora': {},
+      'model_hash': 'abc123-full-hash',
+      'negative': 'ugly',
+      'ngms': None,
+      'parser': 'a1111',
+      'positive': 'a nice photo',
+      'sampler': 'DPM++ SDE',
+      'sch_beta': None,
+      'sch_sigma': None,
+      'sch_spacing': None,
+      'sch_type': None,
+      'seed': 12345,
+      'steps': 20,
+      'v_seed': None,
+      'width': 64,
+    },
+    'sd_info': {},
+    'sd_params': {
+      'cfg scale': '7.5',
+      'height': '64',
+      'model': 'mymodel',
+      'model hash': 'abc123',
+      'negative': 'ugly',
+      'positive': 'a nice photo',
+      'sampler': 'DPM++ SDE',
+      'seed': '12345',
+      'steps': '20',
+      'width': '64',
+    },
+    'parse_errors': {},
+  }
 
 
 def testImportImageFilePNGNoMetadata(tmp_path: pathlib.Path) -> None:
@@ -742,9 +849,25 @@ def testImportImageFilePNGNoMetadata(tmp_path: pathlib.Path) -> None:
     {},
     {},
   )
-  assert entry['ai_meta'] is None
-  assert entry['origin'] is None
-  assert 'no AI metadata' in entry['parse_errors']
+  # pop variable fields and check them separately
+  assert entry.pop('created_at') > 1000000  # type: ignore[misc]
+  assert entry == {
+    'hash': img_hash,
+    'raw_hash': 'c34fb4331b2d031d7c644860b54a678424c66ef12352fc165a91dc09840d98fd',
+    'path': str(img_path),
+    'alt_path': [],
+    'size': len(img_bytes),
+    'width': 64,
+    'height': 64,
+    'format': base.ImageFormat.PNG.value,
+    'origin': None,
+    'version': None,
+    'info': None,
+    'ai_meta': None,
+    'sd_info': {},
+    'sd_params': {},
+    'parse_errors': {'no AI metadata': None},
+  }
 
 
 def testImportImageFileUnsupportedFormatRaises(tmp_path: pathlib.Path) -> None:
@@ -817,12 +940,60 @@ def testSyncNewImageImported(tmp_path: pathlib.Path) -> None:
   ai_db.Sync(add_dir=src_dir)
   assert img_hash in ai_db._db['images']
   entry: db.DBImageType = ai_db._db['images'][img_hash]
-  assert entry['path'] == str(img_path)
-  assert entry['ai_meta'] is not None
-  assert entry['ai_meta']['positive'] == 'sunset photo'
-  assert entry['ai_meta']['negative'] == 'rain'
-  assert entry['ai_meta']['seed'] == 777
-  assert entry['ai_meta']['steps'] == 15
+  # pop variable fields and check them separately
+  assert entry.pop('created_at') > 1000000  # type: ignore[misc]
+  assert entry == {
+    'hash': img_hash,
+    'raw_hash': 'c34fb4331b2d031d7c644860b54a678424c66ef12352fc165a91dc09840d98fd',
+    'path': str(img_path),
+    'alt_path': [],
+    'size': len(img_bytes),
+    'width': 64,
+    'height': 64,
+    'format': base.ImageFormat.PNG.value,
+    'origin': db.ImageOrigin.AIUnknown.value,
+    'version': None,
+    'info': params,
+    'ai_meta': {
+      'cfg_end': 10,
+      'cfg_rescale': 0,
+      'cfg_scale': 60,
+      'cfg_skip': None,
+      'clip_skip': 10,
+      'freeu': None,
+      'height': 64,
+      'img2img': None,
+      'lora': {},
+      'model_hash': 'deadbeef00',
+      'negative': 'rain',
+      'ngms': None,
+      'parser': 'a1111',
+      'positive': 'sunset photo',
+      'sampler': 'Euler',
+      'sch_beta': None,
+      'sch_sigma': None,
+      'sch_spacing': None,
+      'sch_type': None,
+      'seed': 777,
+      'steps': 15,
+      'v_seed': None,
+      'width': 64,
+    },
+    'sd_info': {},
+    'sd_params': {
+      'cfg scale': '6.0',
+      'height': '64',
+      'model': 'my-sdxl-model',
+      'model hash': 'deadbeef00',
+      'negative': 'rain',
+      'positive': 'sunset photo',
+      'sampler': 'Euler',
+      'seed': '777',
+      'steps': '15',
+      'width': '64',
+    },
+    'parse_errors': {},
+  }
 
 
 def testSyncNonImageFilesIgnored(tmp_path: pathlib.Path) -> None:

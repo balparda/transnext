@@ -14,6 +14,7 @@ import requests
 from PIL import Image, PngImagePlugin
 from transcrypto.utils import base as tbase
 
+from transnext import __version__ as _transnext_version
 from transnext.core import base, db, sdnapi
 
 # --- helpers ---
@@ -340,10 +341,22 @@ def testGetModelsValid() -> None:
   ):
     models: list[db.AIModelType] = api.GetModels()
   assert len(models) == 1
-  assert models[0]['name'] == 'my-model'
-  assert models[0]['hash'] == 'hash1'
-  assert models[0]['model_type'] == 'safetensors'
-  assert models[0]['function'] == db.ModelFunction.Model.value
+  assert models[0] == {
+    'hash': 'hash1',
+    'name': 'my-model',
+    'alias': 'my-model [hash1]',
+    'path': '/tmp/model.safetensors',  # noqa: S108
+    'model_type': 'safetensors',
+    'function': db.ModelFunction.Model.value,
+    'metadata': {
+      'sha256': 'hash1',
+      'model_name': 'my-model',
+      'title': 'my-model [hash1]',
+      'filename': '/tmp/model.safetensors',  # noqa: S108
+      'type': 'safetensors',
+    },
+    'description': None,
+  }
 
 
 def testGetModelsEmptyResponseRaises() -> None:
@@ -440,9 +453,16 @@ def testGetLoraValid() -> None:
   ):
     loras: list[db.AIModelType] = api.GetLora()
   assert len(loras) == 1
-  assert loras[0]['name'] == 'my-lora'
-  assert loras[0]['alias'] == 'lora-alias'
-  assert loras[0]['function'] == db.ModelFunction.Lora.value
+  assert loras[0] == {
+    'hash': '',
+    'name': 'my-lora',
+    'alias': 'lora-alias',
+    'path': '/tmp/lora.safetensors',  # noqa: S108
+    'model_type': 'safetensors',
+    'function': db.ModelFunction.Lora.value,
+    'metadata': {},
+    'description': None,
+  }
 
 
 def testGetLoraLycorisDetected() -> None:
@@ -538,11 +558,34 @@ def testTxt2ImgSuccess() -> None:
       _Txt2ImgAPIData(64, 64),  # txt2img
     ]
     db_img, img_data = api.Txt2Img(model, meta)
-  assert db_img['width'] == 64
-  assert db_img['height'] == 64
-  assert db_img['format'] == 'PNG'
-  assert db_img['origin'] == db.ImageOrigin.TransNext.value
   assert len(img_data) > 0
+  # pop variable fields and check them separately
+  assert db_img.pop('created_at') > 1000000  # type: ignore[misc]
+  assert db_img == {
+    'path': None,
+    'alt_path': [],
+    'width': 64,
+    'height': 64,
+    'size': 217,
+    'hash': '75d704ad7cf296cc1f21cfea8dfb8a1b829559b88ba832885d8fa68d080659f7',
+    'raw_hash': '0bcc07de1631aa0395013f35790f719bd754f61e4bb2847a86fdc2365d3d8d63',
+    'format': 'PNG',
+    'origin': db.ImageOrigin.TransNext.value,
+    'version': f'abc123/{_transnext_version}',
+    'info': 'some info text',
+    'ai_meta': _MakeMeta({'width': 64, 'height': 64}),
+    'sd_info': {
+      'width': 64,
+      'height': 64,
+      'sd_model_checkpoint': 'test-model',
+    },
+    'sd_params': {
+      'width': 64,
+      'height': 64,
+      'sd_model_checkpoint': 'test-model',
+    },
+    'parse_errors': {},
+  }
 
 
 def testTxt2ImgModelChange() -> None:

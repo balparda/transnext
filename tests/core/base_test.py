@@ -354,10 +354,10 @@ def testLoraExtractMultiple() -> None:
   """LoraExtract extracts multiple lora/lyco references."""
   query: str = '<lora:model-a:1.0> <lyco:model-b:0.5>'
   result: dict[str, tuple[str, str]] = base.LoraExtract(query)
-  assert 'model-a' in result
-  assert result['model-a'] == ('lora', '1.0')
-  assert 'model-b' in result
-  assert result['model-b'] == ('lyco', '0.5')
+  assert result == {
+    'model-a': ('lora', '1.0'),
+    'model-b': ('lyco', '0.5'),
+  }
 
 
 def testLoraExtractNoMatch() -> None:
