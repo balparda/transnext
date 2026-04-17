@@ -292,11 +292,42 @@ class AIDatabase:
         logging.warning(f'DB file not found, will start fresh, {self.label}')
     if self._read_only:
       logging.warning('ATTENTION: AIDatabase opened in read-only mode, changes will not be saved!')
+    # compute indexes on the fly
+    self._raws: dict[str, set[str]] = {}
+    self._paths: dict[str, str] = {}
+    self._ComputeIndexes()
+    # if API provided, refresh models/lora from API and save to DB
     if api:
       logging.info('API provided: refreshing DB models/lora')
       self.RefreshDBModels(api)
       self.RefreshDBLora(api)
       self.Save()
+
+  def _ComputeIndexes(self) -> None:
+    """Compute indexes for quick lookups.
+
+    Raises:
+      Error: if there are inconsistent entries in the DB
+
+    """
+    # reset indexes
+    self._raws = {}
+    self._paths = {}
+    # go over images
+    with timer.Timer(emit_log=False) as tmr:
+      for h, img in self._db['images'].items():
+        # raw hash is just a collection of all the paths that land in the same raw hash
+        self._raws.setdefault(img['raw_hash'], set()).add(h)
+        # paths we add one by one so we can check all paths are individually unique
+        for p in img['alt_path'] + ([img['path']] if img['path'] else []):
+          if p in self._paths:
+            raise Error(f'Duplicate path: {p!r} exists in {self._paths[p]!r} & {h!r}: {img}')
+          self._paths[p] = h
+    # done
+    logging.info(
+      f'Refreshed indexes in {tmr}: {len(self._db["images"])} img / {len(self._raws)} unique raw '
+      f'hashes, {len(self._paths)} unique paths'
+    )
 
   def __enter__(self) -> Self:
     """Context manager entry, returns self.
@@ -568,6 +599,8 @@ class AIDatabase:
       self._db['models'][meta['model_hash']].copy(), meta, dir_root=self.output
     )
     self._db['images'][db_entry['hash']] = copy.deepcopy(db_entry)  # add to DB images
+    # TODO: add to indexes without raising?
+    self._ComputeIndexes()
     return (db_entry, img_bytes)
 
   def Sync(self, *, add_dir: pathlib.Path | str | None = None) -> None:  # noqa: C901, PLR0912, PLR0914, PLR0915
@@ -711,7 +744,8 @@ class AIDatabase:
           # we should have an OK db_entry['path'] that exists, we remove it from the rest
           filtered_paths.discard(db_entry['path'])
           db_entry['alt_path'] = sorted(filtered_paths)
-    # done, log
+    # done, recompute indexes and log
+    self._ComputeIndexes()
     logging.info(
       f'Check done in {tmr_del}: {len(self._db["images"])} unique hashes in DB. '
       f'In the DB we had {total_paths} total paths, {existing_paths} still existing, '
