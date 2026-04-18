@@ -518,6 +518,9 @@ class AIDatabase:
     Args:
       api: APIProtocol instance to use for fetching available models
 
+    Raises:
+      Error: if there are duplicate models by hash
+
     """
     models: list[AIModelType] = api.GetModels()
     # add missing hashes
@@ -529,6 +532,8 @@ class AIDatabase:
         logging.warning(f'Model with empty hash received from API, hashing {model["path"]}')
         model['hash'] = hashes.Hash256(pathlib.Path(model['path']).read_bytes()).hex()
       logging.info(f'Adding model: {model["name"]} -> {model["hash"]}')
+      if model['hash'] in self._db['models']:
+        raise Error(f'Model {model} already exists in DB {self._db["models"][model["hash"]]}')
       self._db['models'][model['hash']] = model  # add to DB models
     # done, log
     logging.info(f'Refreshed DB models; total models in DB: {len(self._db["models"])}')
@@ -538,6 +543,9 @@ class AIDatabase:
 
     Args:
       api: APIProtocol instance to use for fetching available models
+
+    Raises:
+      Error: if there are duplicate lora by hash
 
     """
     loras: list[AIModelType] = api.GetLora()
@@ -554,6 +562,8 @@ class AIDatabase:
       except tbase.Error:
         logging.warning(f'Failed to compute AutoV3 hash for LoRA from SDNext API: {lora["path"]}')
       logging.info(f'Adding lora: {lora["name"]} -> {lora["hash"]}/{lora.get("autov3", "-")}')
+      if lora['hash'] in self._db['lora']:
+        raise Error(f'Lora {lora} already exists in DB {self._db["lora"][lora["hash"]]}')
       self._db['lora'][lora['hash']] = lora  # add to DB lora
     # done, log
     logging.info(f'Refreshed DB lora; total lora in DB: {len(self._db["lora"])}')
