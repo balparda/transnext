@@ -497,6 +497,12 @@ SD_SCHEDULER_PREDICTION_TYPE_OPTION: typer.models.OptionInfo = typer.Option(
   help='Sampler prediction type to use for the generation; default: None (SDNext default)',
 )
 
+SD_REDO_OPTION: typer.models.OptionInfo = typer.Option(
+  False,
+  '--redo/--no-redo',
+  help=('If True, forces operation to re-do; if False (default) will skip unnecessary operations'),
+)
+
 
 @dataclasses.dataclass(kw_only=True, slots=True, frozen=True)
 class TransNextConfig(clibase.CLIConfig):
@@ -524,7 +530,42 @@ def PromptHash(positive: str, negative: str | None = None) -> str:
   hash_str: bytes = positive.encode('utf-8') + b'\x00\x00'
   if negative is not None:
     hash_str += negative.encode('utf-8')
-  return hashes.Hash256(hash_str).hex()[-12:]
+  return hashes.Hash256(hash_str).hex()[:12]
+
+
+def AutoV3LoraHash(path: str | pathlib.Path) -> str:
+  """Compute the AutoV3 hash for a LoRA safetensors file.
+
+  For LoRAs, AutoV3 is essentially the first 12 hex characters of a SHA-256 hash of the
+  safetensors tensor data, excluding the safetensors metadata/header.
+  This is also called the kohya-ss / addnet safetensors hash or sometimes tensor hash.
+  AUTOMATIC1111's code path for this uses addnet_hash_safetensors: it reads the first 8
+  bytes as the safetensors header length, skips 8 + header_length, then SHA-256 hashes
+  the remaining bytes.
+
+  Args:
+    path: The path to the LoRA safetensors file.
+
+  Returns:
+    The AutoV3 hash for the LoRA, as a string of the first 12 hex characters of a SHA
+
+  Raises:
+    Error: If the file does not exist or is not a valid safetensors file
+
+  """
+  pl = pathlib.Path(path)
+  if not pl.exists() or not pl.is_file() or not pl.suffix.lower() == '.safetensors':
+    raise Error(f'Invalid LoRA file: {path!r}')
+  file_size: int = pl.stat().st_size
+  with pl.open('rb') as f:
+    header_len_bytes: bytes = f.read(8)
+    if len(header_len_bytes) != 8:  # noqa: PLR2004
+      raise Error('Not a valid safetensors file: missing header length')
+    header_len: int = int.from_bytes(header_len_bytes, 'little')
+    if header_len < 0 or header_len > file_size - 8:
+      raise Error(f'Not a valid safetensors file: invalid header length {header_len}')
+    f.seek(8 + header_len)
+    return hashes.Hash256(f.read()).hex()[:12]
 
 
 def GetFileCreation(path: pathlib.Path) -> int:
@@ -620,24 +661,34 @@ def FindModelHash(tp: str, partial_hash: str, partial_name: str, models: dict[st
   partial_hash, partial_name = partial_hash.strip().lower(), partial_name.strip().lower()
   if not partial_hash.strip() and not partial_name.strip():
     raise Error(f'{tp} empty query')
+
+  def _RemoveAutoV3(h: str) -> str:
+    # hash keys are probably made by db._ModelsRef() so return just the first part of the hash
+    return h.split('.', 1)[0] if '.' in h else h
+
   hash_matches: list[str] = []
+  hsh: str
   if partial_hash:
     # check for exact HASH match, the best of all
     if partial_hash in models:
-      return partial_hash  # exact match
+      return _RemoveAutoV3(partial_hash)  # exact match (_RemoveAutoV3 not strictly needed...)
     # check for partial hash match, second best, but still very confident
-    hash_matches = [h for h in models if h.lower().startswith(partial_hash)]
+    hash_matches = [h for h in models if partial_hash in h.lower()]
     if len(hash_matches) == 1:
-      logging.debug(f'Matched partial {tp} hash {partial_hash!r} -> {hash_matches[0]!r}')
-      return hash_matches[0]  # found!
+      # found! unique
+      hsh = _RemoveAutoV3(hash_matches[0])
+      logging.debug(f'Matched partial {tp} hash {partial_hash!r} -> {hsh!r}')
+      return hsh
   # check for partial name/alias match if we have a name, not super reliable:
   # (could be a different version of the same model, for example)
   name_matches: list[str] = []
   if partial_name:
     name_matches = [h for h, v in models.items() if partial_name in v.lower()]
     if len(name_matches) == 1:
-      logging.debug(f'Matched partial {tp} name {partial_name!r} -> {name_matches[0]!r}')
-      return name_matches[0]  # found!
+      # found! unique
+      hsh = _RemoveAutoV3(name_matches[0])
+      logging.debug(f'Matched partial {tp} name {partial_name!r} -> {hsh!r}')
+      return hsh
   # no match found, this is an error
   if len(hash_matches) > 1 or len(name_matches) > 1:
     raise Error(f'ambiguous {tp} #{partial_hash}/{partial_name}: {hash_matches}/{name_matches}')

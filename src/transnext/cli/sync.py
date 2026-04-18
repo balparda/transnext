@@ -35,6 +35,7 @@ def Sync(  # documentation is help/epilog/args # noqa: D103
     ),
   ),
   force_api: bool = base.SD_FORCE_API,  # type: ignore[assignment]
+  redo: bool = base.SD_REDO_OPTION,  # type: ignore[assignment]
 ) -> None:
   # open DB
   config: gen.GenConfig = ctx.obj
@@ -48,6 +49,6 @@ def Sync(  # documentation is help/epilog/args # noqa: D103
       ) from err
     logging.warning(f'Failed to connect to SDNext API server, proceeding without API: {err}')
   with db.AIDatabase(config.appconfig, read_only=not config.db, api=api) as ai_db:
-    ai_db.Sync(add_dir=add_dir)
+    ai_db.Sync(add_dir=add_dir, redo=redo)
   # DB is closed and saved
   config.console.print()

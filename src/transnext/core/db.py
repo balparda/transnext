@@ -82,24 +82,38 @@ class ImageOrigin(enum.Enum):
 
 
 class DBImageType(TypedDict):
-  """DB image metadata type."""
+  """DB image metadata type.
+
+  We have to consider here duplicates: since the hash is the same we can assume many fields are
+  the same, but some will need to be per-file, thus `paths`.
+  """
 
   hash: str  # image hash: the hash of the file on disk, usually a PNG file
   raw_hash: str  # raw image hash: the hash of the raw image data computed internally to PIL
-  path: str | None  # image file path
-  alt_path: list[str]  # alternative paths where the image is found (e.g., duplicates)
   size: int  # image file size
   width: int  # image width
   height: int  # image height
   format: str  # ImageFormat string (e.g., JPEG, PNG, GIF)
+  info: str | None  # original info string from the image metadata; None: could not extract info
+  paths: dict[str, DBImagePathType]  # paths where the image is found, keyed by path (duplicates)
+
+
+class DBImagePathType(TypedDict):
+  """DB image on disk metadata type.
+
+  This data varies among duplicates because they might have been generated from different places,
+  and might differ in metadata. We can only hope that `ai_meta` will be very similar if we could
+  parse it, but even here there is no guarantee...
+  """
+
+  main: bool  # is this the main path?
   created_at: int  # timestamp of when the image was added to the DB
   origin: str | None  # ImageOrigin of the image, if known, otherwise None
+  parse_errors: dict[str, None] | None  # any errors encountered during parsing of image metadata
   version: str | None  # version of the software that generated the image, if known, otherwise None
-  info: str | None  # original info string from the image metadata; None: could not extract info
   ai_meta: AIMetaType | None  # AI generation metadata; None: not an AI-gen image we could parse
-  sd_info: tbase.JSONDict  # additional info from SDNext API response
-  sd_params: tbase.JSONDict  # additional info from SDNext API response
-  parse_errors: dict[str, None]  # any errors encountered during parsing of the image metadata
+  sd_info: tbase.JSONDict | None  # additional SDNext info API response when WE generated only!
+  sd_params: tbase.JSONDict | None  # additional SDNext params API response when WE generated only!
 
 
 class ModelType(enum.Enum):
@@ -128,6 +142,7 @@ class AIModelType(TypedDict):
   hash: str  # hash of the model/lora/lycoris file
   name: str  # AI model identifier
   alias: str  # AI model alias; can be equal to name
+  autov3: str | None  # AutoV3 hash for LoRAs, or None if not a LoRA
   path: str  # path to the model file
   model_type: str  # ModelType file type (e.g., 'safetensors', 'ckpt')
   function: str  # ModelFunction (e.g., 'Model', 'Lora', 'Lycoris')
@@ -299,12 +314,17 @@ class AIDatabase:
     # if API provided, refresh models/lora from API and save to DB
     if api:
       logging.info('API provided: refreshing DB models/lora')
+      orig_n: int = len(self._db['models'])
       self.RefreshDBModels(api)
+      if len(self._db['models']) > orig_n:
+        self.Save()  # save if we added new models from API (reason: hashing is costly)
+      orig_n = len(self._db['lora'])
       self.RefreshDBLora(api)
-      self.Save()
+      if len(self._db['lora']) > orig_n:
+        self.Save()  # save if we added new lora/lycoris from API (reason: hashing is costly)
 
-  def _ComputeIndexes(self) -> None:
-    """Compute indexes for quick lookups.
+  def _ComputeIndexes(self) -> None:  # noqa: C901
+    """Compute indexes for quick lookups. Check DB consistency.
 
     Raises:
       Error: if there are inconsistent entries in the DB
@@ -313,16 +333,30 @@ class AIDatabase:
     # reset indexes
     self._raws = {}
     self._paths = {}
-    # go over images
-    with timer.Timer(emit_log=False) as tmr:
+    with timer.Timer(emit_log=False) as tmr:  # noqa: PLR1702
+      # go over images, build indexes
       for h, img in self._db['images'].items():
         # raw hash is just a collection of all the paths that land in the same raw hash
         self._raws.setdefault(img['raw_hash'], set()).add(h)
         # paths we add one by one so we can check all paths are individually unique
-        for p in img['alt_path'] + ([img['path']] if img['path'] else []):
+        for p, obj in img['paths'].items():
           if p in self._paths:
             raise Error(f'Duplicate path: {p!r} exists in {self._paths[p]!r} & {h!r}: {img}')
           self._paths[p] = h
+          if (meta := obj['ai_meta']) is not None:
+            if (mh := meta['model_hash']) is not None and mh not in self._db['models']:
+              logging.error(f'Image {h!r}/{p} has unknown model hash {mh!r}')
+            for lh in meta['lora']:
+              if lh not in self._db['lora']:
+                logging.error(f'Image {h!r}/{p} has unknown lora hash {lh!r}')
+      # go over models and lora and check they exist
+      for tp, models_dict in (('Model', self._db['models']), ('Lora', self._db['lora'])):
+        for mh, model in models_dict.items():
+          name: str = model['name']
+          if mh != model['hash']:
+            raise Error(f'{tp} hash mismatch, {name}: key {mh!r} vs model {model}')
+          if not pathlib.Path(model['path']).exists():
+            logging.error(f'{tp} {mh!r}, {name} has non-existent path: {model["path"]}')
     # done
     logging.info(
       f'Refreshed indexes in {tmr}: {len(self._db["images"])} img / {len(self._raws)} unique raw '
@@ -494,7 +528,7 @@ class AIDatabase:
       if not model['hash'].strip():
         logging.warning(f'Model with empty hash received from API, hashing {model["path"]}')
         model['hash'] = hashes.Hash256(pathlib.Path(model['path']).read_bytes()).hex()
-      logging.info(f'Adding model to DB: {model["name"]} -> {model["hash"]}')
+      logging.info(f'Adding model: {model["name"]} -> {model["hash"]}')
       self._db['models'][model['hash']] = model  # add to DB models
     # done, log
     logging.info(f'Refreshed DB models; total models in DB: {len(self._db["models"])}')
@@ -515,7 +549,11 @@ class AIDatabase:
       if not lora['hash'].strip():
         logging.warning(f'Model with empty hash received from API, hashing {lora["path"]}')
         lora['hash'] = hashes.Hash256(pathlib.Path(lora['path']).read_bytes()).hex()
-      logging.info(f'Adding model to DB: {lora["name"]} -> {lora["hash"]}')
+      try:
+        lora['autov3'] = base.AutoV3LoraHash(lora['path'])
+      except tbase.Error:
+        logging.warning(f'Failed to compute AutoV3 hash for LoRA from SDNext API: {lora["path"]}')
+      logging.info(f'Adding lora: {lora["name"]} -> {lora["hash"]}/{lora.get("autov3", "-")}')
       self._db['lora'][lora['hash']] = lora  # add to DB lora
     # done, log
     logging.info(f'Refreshed DB lora; total lora in DB: {len(self._db["lora"])}')
@@ -590,16 +628,22 @@ class AIDatabase:
       meta['lora'][lora_hash] = weights
     return meta
 
-  def Txt2Img(self, meta: AIMetaType, api: APIProtocol) -> tuple[DBImageType, bytes]:
+  def Txt2Img(
+    self, meta: AIMetaType, api: APIProtocol, *, redo: bool = False
+  ) -> tuple[DBImageType, bytes]:
     """Generate image from text prompt, store in DB.
+
+    Beware that with no self.output the image will NOT be added to the DB (no path to track).
 
     Args:
       meta: AIMetaType object containing the generation metadata (e.g., prompt, steps,
           seed, width, height, sampler_id, model_key)
       api: APIProtocol instance to use for making the API call
+      redo: (default False) If True, forces re-generation of the image even if it exists in the DB
 
     Returns:
       A tuple containing the DBImageType object and the raw image data.
+      The returned object in NOT the same object in the DB, the DB has a copy.
 
     Raises:
       Error: if the model hash in meta is not found in the DB models
@@ -612,26 +656,41 @@ class AIDatabase:
     # try to find it here already
     db_entry: DBImageType
     for h, db_entry in self._db['images'].items():
-      if db_entry['path'] and db_entry['ai_meta'] == meta:
-        # we have a file that matches, or should have...
-        path = pathlib.Path(db_entry['path'])
-        if not path.exists():
-          logging.warning(f'Image {meta} should exist as {h}: {path} but FILE NOT FOUND')
-          db_entry['path'] = None  # clear the path since it's not valid
-          continue  # give up on this, probably means this entry will be replaced...
-        logging.info(f'Image {meta} exists with hash {h}: {path}')
-        return (db_entry, path.read_bytes())
-    # not found, generate new
+      for p, path_info in db_entry['paths'].items():
+        if path_info['ai_meta'] == meta:
+          # we have a file that matches, or should have...
+          logging.warning(f'Found existing {h!r} image with matching metadata at {p}: {db_entry}')
+          if not pathlib.Path(p).exists():
+            logging.error(f'Missing image {p}, will not use it...')
+            continue
+          # file matches and exists
+          if redo:
+            logging.warning(f'REDOING image generation for metadata match at {p}!...')
+            continue
+          # we do not have to re-do
+          return (db_entry, pathlib.Path(p).read_bytes())
+    # not found or redo requested, generate new
     img_bytes: bytes
     db_entry, img_bytes = api.Txt2Img(
       self._db['models'][meta['model_hash']].copy(), meta, dir_root=self.output
     )
-    self._db['images'][db_entry['hash']] = copy.deepcopy(db_entry)  # add to DB images
-    # TODO: add to indexes without raising?
-    self._ComputeIndexes()
+    hsh: str = db_entry['hash']
+    path: str = next(iter(db_entry['paths']))  # get the first path from the entry paths
+    if self.output and path:
+      if hsh in self._db['images']:
+        obj: DBImageType = self._db['images'][hsh]
+        obj['paths'][path] = copy.deepcopy(db_entry['paths'][path])  # add the new path
+        # no new hash, so no new raw_hash, so that index is OK; just add the new path
+      else:
+        # new image
+        db_entry['paths'][path]['main'] = True  # mark this path as main for the image
+        self._db['images'][hsh] = copy.deepcopy(db_entry)  # add to DB images
+        # add to indexes
+        self._raws.setdefault(db_entry['raw_hash'], set()).add(hsh)
+      self._paths[path] = hsh  # add to path index
     return (db_entry, img_bytes)
 
-  def Reproduce(self, img_hash: str, api: APIProtocol) -> tuple[DBImageType, bytes]:
+  def Reproduce(self, img_hash: str, api: APIProtocol) -> tuple[DBImageType, bytes]:  # noqa: C901, PLR0912
     """Reproduce an image by its hash, using the metadata in the DB.
 
     Args:
@@ -646,17 +705,20 @@ class AIDatabase:
 
     """
     if img_hash not in self._db['images']:
-      raise Error(f'Image with hash {img_hash} not found in DB')
+      raise Error(f'Image with hash {img_hash!r} not found in DB')
     old_entry: DBImageType = self._db['images'][img_hash]
-    if not old_entry['ai_meta']:
-      raise Error(f'Image with hash {img_hash} does not have AI metadata, cannot reproduce')
-    meta: AIMetaType = copy.deepcopy(old_entry['ai_meta'])
+    metas: list[DBImagePathType] = [o for o in old_entry['paths'].values() if o['ai_meta']]
+    if not metas:
+      raise Error(f'Image with hash {img_hash!r} does not have any AI metadata, cannot reproduce')
+    if len(metas) > 1:  # TODO: can we do better?
+      logging.error(f'Image {img_hash!r} has multiple meta: {metas}, using the first one')
+    meta: AIMetaType = copy.deepcopy(metas[0]['ai_meta'])  # type: ignore[assignment]
     logging.info(f'Reproducing image {img_hash!r} with metadata: {meta}')
     # we have the model?
     if meta['model_hash'] not in self._db['models']:
       raise Error(f'Model with hash {meta["model_hash"]} not found in DB models')
     # show the errors
-    for err in sorted(old_entry['parse_errors']):
+    for err in sorted(metas[0]['parse_errors'] or []):
       logging.error(f'Image parsing error: {err}')
       if err == 'upscaled':
         raise Error(f'Image upscaled; use original size: {old_entry}')
@@ -672,20 +734,36 @@ class AIDatabase:
     new_entry, img_bytes = api.Txt2Img(
       self._db['models'][meta['model_hash']].copy(), meta, dir_root=self.output
     )
-    self._db['images'][new_entry['hash']] = copy.deepcopy(new_entry)  # add to DB images
-    # TODO: add to indexes without raising?
-    self._ComputeIndexes()
+    hsh: str = new_entry['hash']
+    path: str = next(iter(new_entry['paths']))  # get the first path from the entry paths
+    if self.output and path:
+      if hsh in self._db['images']:
+        obj: DBImageType = self._db['images'][hsh]
+        obj['paths'][path] = copy.deepcopy(new_entry['paths'][path])  # add the new path
+        # no new hash, so no new raw_hash, so that index is OK; just add the new path
+      else:
+        # new image
+        new_entry['paths'][path]['main'] = True  # mark this path as main for the image
+        self._db['images'][hsh] = copy.deepcopy(new_entry)  # add to DB images
+        # add to indexes
+        self._raws.setdefault(new_entry['raw_hash'], set()).add(hsh)
+      self._paths[path] = hsh  # add to path index
     if new_entry['raw_hash'] == old_entry['raw_hash']:
       logging.info(f'Successful raw match {new_entry["raw_hash"]!r} for reproduction')
     else:
       logging.error(f'New image raw {new_entry["raw_hash"]!r} != {old_entry["raw_hash"]!r}')
     return (new_entry, img_bytes)
 
-  def Sync(self, *, add_dir: pathlib.Path | str | None = None) -> None:  # noqa: C901, PLR0912, PLR0914, PLR0915
+  def Sync(self, *, add_dir: pathlib.Path | str | None = None, redo: bool = False) -> None:  # noqa: C901, PLR0914, PLR0915
     """Go over all known image dirs, check for new/deleted images, update DB accordingly.
+
+    Re-computes hashes for all images, but if hash is know does not re-parse it,
+    just updates the paths if needed. If redo is True, it will re-parse all images
+    even if the hash is known.
 
     Args:
       add_dir: (default None) Optional additional dir to add to known image sources and sync with
+      redo: (default False) If True, forces re-sync of all images
 
     Raises:
       Error: if the provided path is invalid or other errors
@@ -741,7 +819,7 @@ class AIDatabase:
         smoothing=0.001,
         colour='green',
       ):
-        # try to read the file and hash it
+        # try to read the file and hash it: we recompute the hash no matter what
         try:
           img_bytes: bytes = img_path.read_bytes()
         except OSError:
@@ -750,35 +828,32 @@ class AIDatabase:
           continue
         img_hash: str = hashes.Hash256(img_bytes).hex()
         valid_image += 1
+        str_path: str = str(img_path)
         # do we know this hash?
+        if (
+          not redo  # respect re-do
+          and img_hash in self._db['images']  # we have the hash
+          and str_path in self._db['images'][img_hash]['paths']  # and we have this path
+        ):
+          continue  # already known — update path tracking if needed
+        # new image (or redo) — parse metadata and add to DB
+        try:
+          new_entry: DBImageType = _ImportImageFile(
+            img_path, img_bytes, img_hash, all_models, all_lora
+          )
+        except (ValueError, tbase.Error) as err:
+          img_error += 1
+          logging.error(f'Could not import image, skipping {img_path}: {err}')
+          continue
+        # we have a new entry, add to DB
+        new_image += 1
+        if new_entry['paths'][str_path]['parse_errors']:
+          meta_error += 1
         if img_hash in self._db['images']:
-          # already known — update path tracking if needed
-          db_entry: DBImageType = self._db['images'][img_hash]
-          str_path: str = str(img_path)
-          alt_path: set[str] = set(db_entry['alt_path'])
-          if db_entry['path'] is None:
-            # add to main entry, remove from alt if it was there
-            db_entry['path'] = str_path
-            logging.debug(f'Restored path for known image {img_hash[:12]}: {img_path}')
-            db_entry['alt_path'] = sorted(alt_path - {str_path})
-          elif db_entry['path'] != str_path:
-            # main entry has a different path, add this one to alt paths if not already there
-            db_entry['alt_path'] = sorted(alt_path | {str_path})
-            logging.debug(f'Added alt path for image {img_hash[:12]}: {img_path}')
+          self._db['images'][img_hash]['paths'][str_path] = new_entry['paths'][str_path]
         else:
-          # new image — parse metadata and add to DB
-          try:
-            new_entry: DBImageType = _ImportImageFile(
-              img_path, img_bytes, img_hash, all_models, all_lora
-            )
-            self._db['images'][img_hash] = new_entry
-            new_image += 1
-            if new_entry['parse_errors']:
-              meta_error += 1
-            logging.debug(f'Imported new image {img_hash[:12]}: {img_path}')
-          except (ValueError, tbase.Error) as err:
-            img_error += 1
-            logging.error(f'Could not import image, skipping {img_path}: {err}')
+          self._db['images'][img_hash] = new_entry
+        logging.debug(f'Imported new image {img_hash[:12]}: {img_path}')
     # done, log
     logging.info(
       f'Sync done in {tmr_add}: {len(self._db["images"])} unique hashes in DB. '
@@ -787,52 +862,16 @@ class AIDatabase:
       f'{meta_error} had metadata errors, {img_error} had irrecoverable errors and were ignored. '
       'Now checking for deleted images...'
     )
-    # check for deleted images — paths that no longer exist on disk
-    total_paths: int = 0
-    existing_paths: int = 0
-    with timer.Timer(emit_log=False) as tmr_del:
-      for img_hash, db_entry in tqdm.tqdm(
-        iterable=self._db['images'].items(),
-        desc='Check',
-        unit='img',
-        dynamic_ncols=True,
-        smoothing=0.001,
-        colour='red',
-      ):
-        # gather all known paths for this image (main + alt), check which ones still exist
-        all_paths: set[str] = set(db_entry['alt_path'])
-        if db_entry['path']:
-          all_paths.add(db_entry['path'])
-        total_paths += len(all_paths)
-        filtered_paths: set[str] = {p for p in all_paths if pathlib.Path(p).exists()}
-        existing_paths += len(filtered_paths)
-        # if none of the paths exist, clear the path info but keep the DB entry
-        if not filtered_paths:
-          logging.warning(f'All paths for image {img_hash[:12]} are gone, clearing: {all_paths}')
-          db_entry['path'] = None
-          db_entry['alt_path'] = []
-          continue
-        # we have at least one existing path, if the main path is gone, promote an alt path to main
-        if not db_entry['path'] or (
-          db_entry['path'] and not pathlib.Path(db_entry['path']).exists()
-        ):
-          db_entry['path'] = filtered_paths.pop()  # promote one of the existing paths to main
-          db_entry['alt_path'] = sorted(filtered_paths)  # the rest become alt paths
-        else:
-          # we should have an OK db_entry['path'] that exists, we remove it from the rest
-          filtered_paths.discard(db_entry['path'])
-          db_entry['alt_path'] = sorted(filtered_paths)
-    # done, recompute indexes and log
+    # done, recompute indexes
     self._ComputeIndexes()
-    logging.info(
-      f'Check done in {tmr_del}: {len(self._db["images"])} unique hashes in DB. '
-      f'In the DB we had {total_paths} total paths, {existing_paths} still existing, '
-      f'so we dropped {total_paths - existing_paths} paths.'
-    )
 
 
 _ModelsRef: abc.Callable[[dict[str, AIModelType]], dict[str, str]] = lambda m: {
-  h: f'{v["name"]} {v["alias"]}' for h, v in m.items()
+  # we include the autov3 hash in the key if it's present, to help disambiguate find lora/lyco
+  # note: base.FindModelHash() expects the '.' separator and uses it to remove and return the
+  # actual hash
+  f'{h}{"." + v["autov3"] if v["autov3"] else ""}': f'{v["name"]} {v["alias"]}'
+  for h, v in m.items()
 }
 
 
@@ -842,7 +881,7 @@ _PARAMS_LINE_RE: re.Pattern[str] = re.compile(
 _PARAM_SPLIT_RE: re.Pattern[str] = re.compile(r',\s*(?=[A-Za-z][A-Za-z0-9 _]*:)', re.IGNORECASE)
 
 
-def _ParseImageMetadata(info_text: str) -> dict[str, str]:  # noqa: C901, PLR0912, PLR0914
+def ParseImageMetadata(info_text: str) -> dict[str, str]:  # noqa: C901, PLR0912, PLR0914
   """Parse SDNext/A1111 image metadata string into a key-value dict.
 
   The metadata string has the structure::
@@ -954,23 +993,26 @@ def _ImportImageFile(  # noqa: C901, PLR0912, PLR0914, PLR0915
     return DBImageType(
       hash=img_hash,
       raw_hash=raw_hash,
-      path=str(img_path),
-      alt_path=[],
       size=len(img_bytes),
       width=width,
       height=height,
       format=fmt.value,
-      created_at=base.GetFileCreation(img_path),
-      origin=None,
-      version=None,
       info=None,
-      ai_meta=None,
-      sd_info={},
-      sd_params={},
-      parse_errors={'no AI metadata': None},
+      paths={
+        str(img_path): DBImagePathType(
+          main=False,
+          created_at=base.GetFileCreation(img_path),
+          origin=None,
+          parse_errors=None,
+          version=None,
+          ai_meta=None,
+          sd_info=None,
+          sd_params=None,
+        )
+      },
     )
   # parse metadata
-  meta_raw: dict[str, str] = _ParseImageMetadata(info_text)
+  meta_raw: dict[str, str] = ParseImageMetadata(info_text)
   parse_errors: dict[str, None] = {}
   # resolve model hash
   model_hash: str | None = None
@@ -1195,20 +1237,23 @@ def _ImportImageFile(  # noqa: C901, PLR0912, PLR0914, PLR0915
   return DBImageType(
     hash=img_hash,
     raw_hash=raw_hash,
-    path=str(img_path),
-    alt_path=[],
     size=len(img_bytes),
     width=width,
     height=height,
     format=fmt.value,
-    created_at=base.GetFileCreation(img_path),
-    origin=img_origin.value if img_origin else ImageOrigin.AIUnknown.value,  # we could parse!
-    version=app_version,
     info=info_text,
-    ai_meta=ai_meta,
-    sd_info={},
-    sd_params=meta_raw,  # type: ignore[typeddict-item]
-    parse_errors=parse_errors,
+    paths={
+      str(img_path): DBImagePathType(
+        main=False,
+        created_at=base.GetFileCreation(img_path),
+        origin=img_origin.value if img_origin else ImageOrigin.AIUnknown.value,  # we could parse!
+        parse_errors=parse_errors or None,
+        version=app_version,
+        ai_meta=ai_meta,
+        sd_info=None,
+        sd_params=None,
+      )
+    },
   )
 
 

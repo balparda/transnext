@@ -494,6 +494,7 @@ class API(db.APIProtocol):
         function=db.ModelFunction.Model.value,
         metadata=copy.deepcopy(model.copy()),
         description=None,
+        autov3=None,  # models don't have autov3 hashes, only lora/lyco
       )
       # check name and path sanity; hash may be empty for now, so we don't check it
       if not model_path.exists():
@@ -549,7 +550,7 @@ class API(db.APIProtocol):
       # make the struct
       lora_path = pathlib.Path(cast('str', lora.get('path', '')).strip())
       new_lora: db.AIModelType = db.AIModelType(
-        hash='',
+        hash='',  # computed later
         name=cast('str', lora.get('name', '') or '').strip(),
         alias=cast('str', lora.get('alias', '') or '').strip(),
         path=str(lora_path),
@@ -561,6 +562,7 @@ class API(db.APIProtocol):
           else {}
         ),
         description=None,
+        autov3=None,  # computed later
       )
       # check name and path sanity; hash may be empty for now, so we don't check it
       if not lora_path.exists():
@@ -890,6 +892,9 @@ class API(db.APIProtocol):
 
     Returns:
       A tuple containing the DBImageType object and the raw image data.
+      The file path in the DBImageType will be '' if dir_root is None, otherwise it will be
+      the path to the saved image. The path will be marked main==False, so if it is to be a
+      main it has to be flipped to main==True.
 
     Raises:
       Error: If there is an error with the API call, if the response is invalid,
@@ -914,6 +919,7 @@ class API(db.APIProtocol):
       # VARIABLE OPTIONS
       'sd_checkpoint_hash': model['hash'],  # set the model hash to trigger load if needed
       'prompt_attention': meta['parser'],
+      # TODO: investigate why the server returns error when we change clip, then it behaves again
       'clip_skip': clip_skip,
       'schedulers_sigma': 'default' if meta['sch_sigma'] is None else meta['sch_sigma'],
       'schedulers_timestep_spacing': (
@@ -1030,37 +1036,39 @@ class API(db.APIProtocol):
         f'{img_hash[:12]}.png'
       )
       full_path = out_dir / filename
-      # TODO: instead of writing the "original" we add our meta to it so we can have lossless load
       full_path.write_bytes(img_data)
       logging.info(f'SDNext API image saved: {full_path}, {human.HumanizedBytes(len(img_data))}')
     # create the metadata
+    path_key: str = str(full_path) if full_path else ''
+    path_obj = db.DBImagePathType(
+      main=False,  # to be safe
+      created_at=tm_created,
+      origin=db.ImageOrigin.TransNext.value,
+      parse_errors=None,
+      version=f'{self.version}/{__version__}',  # TransNext version is like '0eb4a98e0/1.0.0'
+      ai_meta=meta,  # no need to copy here since we already copied above
+      sd_info=json.loads(cast('str', data['info'])),
+      sd_params=cast('tbase.JSONDict', data['parameters']),
+    )
     db_image: db.DBImageType = db.DBImageType(
       hash=img_hash,
       raw_hash=raw_hash,
-      path=str(full_path) if full_path else None,
-      alt_path=[],
       size=len(img_data),
       width=meta['width'],
       height=meta['height'],
       format=base.ImageFormat.PNG.value,
-      created_at=tm_created,
-      origin=db.ImageOrigin.TransNext.value,
-      version=f'{self.version}/{__version__}',  # TransNext version is like '0eb4a98e0/1.0.0'
       info=info_text,
-      ai_meta=meta,  # no need to copy here since we already copied above
-      sd_info=json.loads(cast('str', data['info'])),
-      sd_params=cast('tbase.JSONDict', data['parameters']),
-      parse_errors={},
+      paths={path_key: path_obj},
     )
     # make sure the model and dimensions are coherent as sanity checks
-    if (gen_model := db_image['sd_params']['sd_model_checkpoint']) != model['name']:
+    if (gen_model := path_obj['sd_params']['sd_model_checkpoint']) != model['name']:  # type: ignore[index]
       raise Error(f'Model name mismatch: expected {model["name"]}, got {gen_model}: {data}')
     if (
-      meta['width'] != db_image['sd_info']['width']
-      or meta['height'] != db_image['sd_info']['height']
+      meta['width'] != path_obj['sd_info']['width']  # type: ignore[index]
+      or meta['height'] != path_obj['sd_info']['height']  # type: ignore[index]
     ):
       raise Error(
-        f'Expected image of size {db_image["sd_info"]["width"]}x{db_image["sd_info"]["height"]} '
+        f'Expected image of size {path_obj["sd_info"]["width"]}x{path_obj["sd_info"]["height"]} '  # type: ignore[index]
         f'from SDNext API, got {meta["width"]}x{meta["height"]}: {data}'
       )
     # all is good, save the image to disk and return the DB entry and raw image data

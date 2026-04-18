@@ -94,6 +94,7 @@
   // cspell (custom dictionary)
   "cSpell.words": [
     "abstra",
+    "addnet",
     "addopts",
     "alwayson",
     "appdirs",
@@ -106,6 +107,7 @@
     "autodoc",
     "autolaunch",
     "autouse",
+    "autov",
     "Balparda",
     "BDIA",
     "birthtime",
@@ -201,6 +203,7 @@
     "mdit",
     "mdurl",
     "medvram",
+    "metas",
     "midtones",
     "mininterval",
     "miniters",

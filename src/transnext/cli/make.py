@@ -56,6 +56,7 @@ def Make(  # documentation is help/epilog/args # noqa: D103
   freeu_s1: float = base.SD_FREEU_S1_OPTION,  # type: ignore[assignment]
   freeu_s2: float = base.SD_FREEU_S2_OPTION,  # type: ignore[assignment]
   backup: bool = base.SD_API_SERVER_SAVE,  # type: ignore[assignment]
+  redo: bool = base.SD_REDO_OPTION,  # type: ignore[assignment]
 ) -> None:
   # check sanity
   config: gen.GenConfig = ctx.obj
@@ -106,6 +107,7 @@ def Make(  # documentation is help/epilog/args # noqa: D103
         }
       ),
       api,
+      redo=redo,
     )
   # DB is closed and saved
   config.console.print()

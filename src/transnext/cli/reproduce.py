@@ -59,6 +59,6 @@ def Reproduce(  # documentation is help/epilog/args # noqa: D103
       logging.info(f'Treating {hash_or_path!r} as image hash (not found as a path in DB)')
     # reproduce
     new_entry, _img_bytes = ai_db.Reproduce(img_hash, api)
-    logging.info(f'Reproduced image: new hash={new_entry["hash"]!r}, path={new_entry["path"]!r}')
+    logging.info(f'Reproduced: hash={new_entry["hash"]!r}, path={next(iter(new_entry["paths"]))!r}')
   # DB is closed and saved
   config.console.print()
