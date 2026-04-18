@@ -78,7 +78,7 @@ def testMakeSuccess(
   )
   assert not result.exit_code
   mock_db_inst.GetModelHash.assert_called_once_with('XLB_v10', api=mock_api_inst)
-  mock_db_inst.Txt2Img.assert_called_once_with(mock_meta, mock_api_inst)
+  mock_db_inst.Txt2Img.assert_called_once_with(mock_meta, mock_api_inst, redo=False)
 
 
 @mock.patch('transnext.core.sdnapi.API')

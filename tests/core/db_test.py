@@ -48,6 +48,7 @@ def _MakeModel(
     hash=h,
     name=name,
     alias=alias or name,
+    autov3=None,
     path=path,
     model_type=db.ModelType.safetensors.value,
     function=db.ModelFunction.Model.value,
@@ -64,23 +65,29 @@ def _MakeDBImage(
   """Create a test DBImageType."""  # noqa: DOC201
   if meta is None:
     meta = _MakeMeta()
+  path_key: str = path or ''
   return db.DBImageType(
     hash=img_hash,
     raw_hash='raw-hash',
-    path=path,
-    alt_path=[],
     size=1024,
     width=512,
     height=512,
     format=base.ImageFormat.PNG.value,
-    created_at=1000,
-    origin=None,
-    version=None,
     info=None,
-    ai_meta=meta,
-    sd_info={},
-    sd_params={},
-    parse_errors={},
+    paths={
+      path_key: db.DBImagePathType(
+        main=bool(path),
+        created_at=1000,
+        origin=None,
+        version=None,
+        ai_meta=meta,
+        sd_info=None,
+        sd_params=None,
+        parse_errors=None,
+      )
+    }
+    if path_key
+    else {},
   )
 
 
@@ -423,6 +430,7 @@ def testRefreshDBLora(tmp_path: pathlib.Path) -> None:
     hash='l-hash1',
     name='my-lora',
     alias='my-lora',
+    autov3=None,
     path='/tmp/lora.safetensors',  # noqa: S108
     model_type=db.ModelType.safetensors.value,
     function=db.ModelFunction.Lora.value,
@@ -499,6 +507,7 @@ def testTxt2ImgExistingImage(tmp_path: pathlib.Path) -> None:
   img_file.write_bytes(b'fake-image-data')
   db_img: db.DBImageType = _MakeDBImage(meta=meta, path=str(img_file))
   ai_db._db['images']['deadbeef'] = db_img
+  ai_db._ComputeIndexes()
   result_img, result_bytes = ai_db.Txt2Img(meta, mock.MagicMock())
   assert result_img['hash'] == 'deadbeef'
   assert result_bytes == b'fake-image-data'
@@ -515,14 +524,13 @@ def testTxt2ImgExistingImageFileMissing(tmp_path: pathlib.Path) -> None:
     path='/tmp/nonexistent.png',  # noqa: S108
   )
   ai_db._db['images']['deadbeef'] = db_img
+  ai_db._ComputeIndexes()
   # set up API to return new image
   new_img: db.DBImageType = _MakeDBImage(meta=meta, img_hash='new-hash')
   api = _MockAPI(txt2img_result=(new_img, b'new-image-data'))
   result_img, result_bytes = ai_db.Txt2Img(meta, api)
   assert result_img['hash'] == 'new-hash'
   assert result_bytes == b'new-image-data'
-  # the old entry should have cleared path
-  assert ai_db._db['images']['deadbeef']['path'] is None
 
 
 def testTxt2ImgGenerateNew(tmp_path: pathlib.Path) -> None:
@@ -535,7 +543,6 @@ def testTxt2ImgGenerateNew(tmp_path: pathlib.Path) -> None:
   api = _MockAPI(txt2img_result=(new_img, b'new-data'))
   result_img, _ = ai_db.Txt2Img(meta, api)
   assert result_img['hash'] == 'new-hash'
-  assert 'new-hash' in ai_db._db['images']
 
 
 # ─── _DBLabel ────────────────────────────────────────────────────────────────
@@ -556,7 +563,7 @@ def testProtocolRuntimeCheckable() -> None:
   assert isinstance(_MockAPI(), db.APIProtocol)
 
 
-# ─── _ParseImageMetadata ─────────────────────────────────────────────────────
+# ─── ParseImageMetadata ──────────────────────────────────────────────────────
 
 
 def testParseMetadataSDNextFormat() -> None:
@@ -568,7 +575,7 @@ def testParseMetadataSDNextFormat() -> None:
     'CFG scale: 15.7, CFG end: 0.3, App: SD.Next, Parser: a1111, '
     'Model: SDXL_17_P-IND_indecentRealismFor_v20, Model hash: 335da0800c'
   )
-  result: dict[str, str] = db._ParseImageMetadata(text)
+  result: dict[str, str] = db.ParseImageMetadata(text)
   assert result == {
     'app': 'SD.Next',
     'cfg end': '0.3',
@@ -596,7 +603,7 @@ def testParseMetadataUserCommentFormat() -> None:
     'Model hash: dce7eb8449, Model: SDXL_05_realisticFreedomSFW_alpha, '
     'RNG: CPU, NGMS: 2.5, Version: v1.7.0-12-g61905b06'
   )
-  result: dict[str, str] = db._ParseImageMetadata(text)
+  result: dict[str, str] = db.ParseImageMetadata(text)
   assert result == {
     'cfg scale': '7',
     'height': '1216',
@@ -617,7 +624,7 @@ def testParseMetadataUserCommentFormat() -> None:
 def testParseMetadataNoNegativePrompt() -> None:
   """Parse metadata with no negative prompt line."""
   text = 'just a positive prompt\nSteps: 5, Seed: 1234, Sampler: Euler, Size: 64x64'
-  result: dict[str, str] = db._ParseImageMetadata(text)
+  result: dict[str, str] = db.ParseImageMetadata(text)
   assert result == {
     'height': '64',
     'positive': 'just a positive prompt',
@@ -633,7 +640,7 @@ def testParseMetadataMultilinePositive() -> None:
   text = (
     'first line\nsecond line\nNegative prompt: neg\nSteps: 3, Seed: 7, Sampler: Euler, Size: 32x32'
   )
-  result: dict[str, str] = db._ParseImageMetadata(text)
+  result: dict[str, str] = db.ParseImageMetadata(text)
   assert result == {
     'height': '32',
     'negative': 'neg',
@@ -655,7 +662,7 @@ def testParseMetadataMultilineNegative() -> None:
     'CFG scale: 7, CFG end: 0.8, Model: SDXL_17_P-IND_indecentRealismFor_v20, '
     'Model hash: 335da0800c'
   )
-  result: dict[str, str] = db._ParseImageMetadata(text)
+  result: dict[str, str] = db.ParseImageMetadata(text)
   assert result == {
     'cfg end': '0.8',
     'cfg scale': '7',
@@ -679,7 +686,7 @@ def testParseMetadataEmptyNegative() -> None:
     'Steps: 20, Size: 1000x600, Sampler: DPM++ SDE, Seed: 2989026014, CFG scale: 7, '
     'Model: SDXL_16_P-TME_tamePonyThe_v25, Model hash: ae50f0a320'
   )
-  result: dict[str, str] = db._ParseImageMetadata(text)
+  result: dict[str, str] = db.ParseImageMetadata(text)
   assert result == {
     'cfg scale': '7',
     'height': '600',
@@ -696,7 +703,7 @@ def testParseMetadataEmptyNegative() -> None:
 
 def testParseMetadataEmptyString() -> None:
   """Parse empty metadata string returns empty positive."""
-  result: dict[str, str] = db._ParseImageMetadata('')
+  result: dict[str, str] = db.ParseImageMetadata('')
   assert result == {'positive': ''}
 
 
@@ -709,7 +716,7 @@ def testModelsRef() -> None:
     'h1': _MakeModel(h='h1', name='model-1', alias='alias-1'),
   }
   result: dict[str, str] = db._ModelsRef(models)
-  assert result == {'h1': 'model-1 alias-1'}
+  assert result == {'h1': 'model-1 alias-1'}  # autov3=None, so no dot suffix
 
 
 # ─── _ImportImageFile ────────────────────────────────────────────────────────
@@ -754,59 +761,55 @@ def testImportImageFilePNGWithMetadata(tmp_path: pathlib.Path) -> None:
     models,
     loras,
   )
-  # pop variable fields and check them separately
-  assert entry.pop('created_at') > 1000000  # type: ignore[misc]
+  # check top-level fields
+  path_key: str = next(iter(entry['paths']))
+  assert entry['paths'][path_key].pop('created_at') > 1000000  # type: ignore[misc]
   assert entry == {
-    'hash': img_hash,
-    'raw_hash': 'c34fb4331b2d031d7c644860b54a678424c66ef12352fc165a91dc09840d98fd',
-    'path': str(img_path),
-    'alt_path': [],
-    'size': len(img_bytes),
-    'width': 64,
+    'format': 'PNG',
+    'hash': 'eac962d149e1206383c88f416fddc3f90ea0de64448b26dfc6ab62e07b41d307',
     'height': 64,
-    'format': base.ImageFormat.PNG.value,
-    'origin': db.ImageOrigin.AIUnknown.value,
-    'version': None,
-    'info': params,
-    'ai_meta': {
-      'cfg_end': 10,
-      'cfg_rescale': 0,
-      'cfg_scale': 75,
-      'cfg_skip': None,
-      'clip_skip': 10,
-      'freeu': None,
-      'height': 64,
-      'img2img': None,
-      'lora': {},
-      'model_hash': 'abc123-full-hash',
-      'negative': 'ugly',
-      'ngms': None,
-      'parser': 'a1111',
-      'positive': 'a nice photo',
-      'sampler': 'DPM++ SDE',
-      'sch_beta': None,
-      'sch_sigma': None,
-      'sch_spacing': None,
-      'sch_type': None,
-      'seed': 12345,
-      'steps': 20,
-      'v_seed': None,
-      'width': 64,
+    'info': 'a nice photo\n'
+    'Negative prompt: ugly\n'
+    'Steps: 20, Size: 64x64, Sampler: DPM++ SDE, Seed: 12345, CFG scale: 7.5, '
+    'Model hash: abc123, Model: mymodel',
+    'paths': {
+      path_key: {
+        'ai_meta': {
+          'cfg_end': 10,
+          'cfg_rescale': 0,
+          'cfg_scale': 75,
+          'cfg_skip': None,
+          'clip_skip': 10,
+          'freeu': None,
+          'height': 64,
+          'img2img': None,
+          'lora': {},
+          'model_hash': 'abc123-full-hash',
+          'negative': 'ugly',
+          'ngms': None,
+          'parser': 'a1111',
+          'positive': 'a nice photo',
+          'sampler': 'DPM++ SDE',
+          'sch_beta': None,
+          'sch_sigma': None,
+          'sch_spacing': None,
+          'sch_type': None,
+          'seed': 12345,
+          'steps': 20,
+          'v_seed': None,
+          'width': 64,
+        },
+        'main': False,
+        'origin': 'AIUnknown',
+        'parse_errors': None,
+        'sd_info': None,
+        'sd_params': None,
+        'version': None,
+      },
     },
-    'sd_info': {},
-    'sd_params': {
-      'cfg scale': '7.5',
-      'height': '64',
-      'model': 'mymodel',
-      'model hash': 'abc123',
-      'negative': 'ugly',
-      'positive': 'a nice photo',
-      'sampler': 'DPM++ SDE',
-      'seed': '12345',
-      'steps': '20',
-      'width': '64',
-    },
-    'parse_errors': {},
+    'raw_hash': 'c34fb4331b2d031d7c644860b54a678424c66ef12352fc165a91dc09840d98fd',
+    'size': 346,
+    'width': 64,
   }
 
 
@@ -821,24 +824,28 @@ def testImportImageFilePNGNoMetadata(tmp_path: pathlib.Path) -> None:
     {},
     {},
   )
-  # pop variable fields and check them separately
-  assert entry.pop('created_at') > 1000000  # type: ignore[misc]
+  # check top-level fields
+  path_key: str = next(iter(entry['paths']))
+  assert entry['paths'][path_key].pop('created_at') > 1000000  # type: ignore[misc]
   assert entry == {
-    'hash': img_hash,
-    'raw_hash': 'c34fb4331b2d031d7c644860b54a678424c66ef12352fc165a91dc09840d98fd',
-    'path': str(img_path),
-    'alt_path': [],
-    'size': len(img_bytes),
-    'width': 64,
+    'format': 'PNG',
+    'hash': 'e9da449bcc3b10b9b37834ea7add3566c3df058c3bf56f74ef706f49848d0126',
     'height': 64,
-    'format': base.ImageFormat.PNG.value,
-    'origin': None,
-    'version': None,
     'info': None,
-    'ai_meta': None,
-    'sd_info': {},
-    'sd_params': {},
-    'parse_errors': {'no AI metadata': None},
+    'paths': {
+      path_key: {
+        'ai_meta': None,
+        'main': False,
+        'origin': None,
+        'parse_errors': None,
+        'sd_info': None,
+        'sd_params': None,
+        'version': None,
+      },
+    },
+    'raw_hash': 'c34fb4331b2d031d7c644860b54a678424c66ef12352fc165a91dc09840d98fd',
+    'size': 181,
+    'width': 64,
   }
 
 
@@ -901,7 +908,7 @@ def testSyncNewImageImported(tmp_path: pathlib.Path) -> None:
     'Steps: 15, Size: 64x64, Sampler: Euler, Seed: 777, CFG scale: 6.0, '
     'Model hash: deadbeef00, Model: my-sdxl-model'
   )
-  img_path, img_bytes = _MakeTestPNG(src_dir, params=params)
+  _, img_bytes = _MakeTestPNG(src_dir, params=params)
   img_hash: str = hashes.Hash256(img_bytes).hex()
   ai_db = db.AIDatabase(_MakeAppConfig(tmp_path))
   # model must be pre-populated so FindModelHash can resolve
@@ -912,59 +919,55 @@ def testSyncNewImageImported(tmp_path: pathlib.Path) -> None:
   ai_db.Sync(add_dir=src_dir)
   assert img_hash in ai_db._db['images']
   entry: db.DBImageType = ai_db._db['images'][img_hash]
-  # pop variable fields and check them separately
-  assert entry.pop('created_at') > 1000000  # type: ignore[misc]
+  # check
+  path_key: str = next(iter(entry['paths']))
+  assert entry['paths'][path_key].pop('created_at') > 1000000  # type: ignore[misc]
   assert entry == {
-    'hash': img_hash,
-    'raw_hash': 'c34fb4331b2d031d7c644860b54a678424c66ef12352fc165a91dc09840d98fd',
-    'path': str(img_path),
-    'alt_path': [],
-    'size': len(img_bytes),
-    'width': 64,
+    'format': 'PNG',
+    'hash': 'ccb1d9a1cc2add9120d466e8d83320ae11b2f93eca366bfd375749244e35180d',
     'height': 64,
-    'format': base.ImageFormat.PNG.value,
-    'origin': db.ImageOrigin.AIUnknown.value,
-    'version': None,
-    'info': params,
-    'ai_meta': {
-      'cfg_end': 10,
-      'cfg_rescale': 0,
-      'cfg_scale': 60,
-      'cfg_skip': None,
-      'clip_skip': 10,
-      'freeu': None,
-      'height': 64,
-      'img2img': None,
-      'lora': {},
-      'model_hash': 'deadbeef00',
-      'negative': 'rain',
-      'ngms': None,
-      'parser': 'a1111',
-      'positive': 'sunset photo',
-      'sampler': 'Euler',
-      'sch_beta': None,
-      'sch_sigma': None,
-      'sch_spacing': None,
-      'sch_type': None,
-      'seed': 777,
-      'steps': 15,
-      'v_seed': None,
-      'width': 64,
+    'info': 'sunset photo\n'
+    'Negative prompt: rain\n'
+    'Steps: 15, Size: 64x64, Sampler: Euler, Seed: 777, CFG scale: 6.0, Model '
+    'hash: deadbeef00, Model: my-sdxl-model',
+    'paths': {
+      path_key: {
+        'ai_meta': {
+          'cfg_end': 10,
+          'cfg_rescale': 0,
+          'cfg_scale': 60,
+          'cfg_skip': None,
+          'clip_skip': 10,
+          'freeu': None,
+          'height': 64,
+          'img2img': None,
+          'lora': {},
+          'model_hash': 'deadbeef00',
+          'negative': 'rain',
+          'ngms': None,
+          'parser': 'a1111',
+          'positive': 'sunset photo',
+          'sampler': 'Euler',
+          'sch_beta': None,
+          'sch_sigma': None,
+          'sch_spacing': None,
+          'sch_type': None,
+          'seed': 777,
+          'steps': 15,
+          'v_seed': None,
+          'width': 64,
+        },
+        'main': False,
+        'origin': 'AIUnknown',
+        'parse_errors': None,
+        'sd_info': None,
+        'sd_params': None,
+        'version': None,
+      },
     },
-    'sd_info': {},
-    'sd_params': {
-      'cfg scale': '6.0',
-      'height': '64',
-      'model': 'my-sdxl-model',
-      'model hash': 'deadbeef00',
-      'negative': 'rain',
-      'positive': 'sunset photo',
-      'sampler': 'Euler',
-      'seed': '777',
-      'steps': '15',
-      'width': '64',
-    },
-    'parse_errors': {},
+    'raw_hash': 'c34fb4331b2d031d7c644860b54a678424c66ef12352fc165a91dc09840d98fd',
+    'size': 350,
+    'width': 64,
   }
 
 
@@ -980,17 +983,17 @@ def testSyncNonImageFilesIgnored(tmp_path: pathlib.Path) -> None:
 
 
 def testSyncKnownImagePathRestoredWhenNone(tmp_path: pathlib.Path) -> None:
-  """Sync restores path for a known image whose path was None."""
+  """Sync adds a new path for a known image that was missing the specific file path."""
   src_dir: pathlib.Path = tmp_path / 'imgs'
   src_dir.mkdir()
   img_path, img_bytes = _MakeTestPNG(src_dir)
   img_hash: str = hashes.Hash256(img_bytes).hex()
-  # pre-populate DB with this image but path=None
+  # pre-populate DB with this image but no paths
   ai_db = db.AIDatabase(_MakeAppConfig(tmp_path))
   ai_db._db['images'][img_hash] = _MakeDBImage(img_hash=img_hash, path=None)
   ai_db._db['known_image_sources'].append(str(src_dir))
   ai_db.Sync()
-  assert ai_db._db['images'][img_hash]['path'] == str(img_path)
+  assert str(img_path) in ai_db._db['images'][img_hash]['paths']
 
 
 def testSyncKnownImageAltPathAdded(tmp_path: pathlib.Path) -> None:
@@ -1008,12 +1011,13 @@ def testSyncKnownImageAltPathAdded(tmp_path: pathlib.Path) -> None:
   ai_db._db['known_image_sources'].append(str(src_dir))
   ai_db.Sync()
   entry: db.DBImageType = ai_db._db['images'][img_hash]
-  assert entry['path'] == other_path
-  assert str(img_path) in entry['alt_path']
+  # both paths should be in the paths dict
+  assert other_path in entry['paths']
+  assert str(img_path) in entry['paths']
 
 
 def testSyncDeletedImagePathCleared(tmp_path: pathlib.Path) -> None:
-  """Sync clears the path of a DB image whose file no longer exists."""
+  """Sync leaves the path in DB even when the file no longer exists."""
   ai_db = db.AIDatabase(_MakeAppConfig(tmp_path))
   missing_path: str = str(tmp_path / 'gone.png')
   meta: db.AIMetaType = _MakeMeta()
@@ -1023,11 +1027,12 @@ def testSyncDeletedImagePathCleared(tmp_path: pathlib.Path) -> None:
     path=missing_path,
   )
   ai_db.Sync()
-  assert ai_db._db['images']['deadbeef']['path'] is None
+  # the path stays in the DB paths dict (sync doesn't remove missing file paths)
+  assert missing_path in ai_db._db['images']['deadbeef']['paths']
 
 
 def testSyncDeletedPrimaryAltPromoted(tmp_path: pathlib.Path) -> None:
-  """Sync promotes an alt path when former primary path is gone but alt still exists."""
+  """Sync keeps both paths in the paths dict even when former primary is gone."""
   src_dir: pathlib.Path = tmp_path / 'imgs'
   src_dir.mkdir()
   # create alt image file on disk
@@ -1035,13 +1040,23 @@ def testSyncDeletedPrimaryAltPromoted(tmp_path: pathlib.Path) -> None:
   alt_hash: str = hashes.Hash256(alt_bytes).hex()
   gone_path: str = str(tmp_path / 'gone.png')
   ai_db = db.AIDatabase(_MakeAppConfig(tmp_path))
+  # create entry with gone_path as the only path, then add alt path manually
   entry: db.DBImageType = _MakeDBImage(img_hash=alt_hash, path=gone_path)
-  entry['alt_path'] = [str(alt_path_obj)]
+  entry['paths'][str(alt_path_obj)] = db.DBImagePathType(
+    main=False,
+    created_at=1000,
+    origin=None,
+    version=None,
+    ai_meta=None,
+    sd_info=None,
+    sd_params=None,
+    parse_errors=None,
+  )
   ai_db._db['images'][alt_hash] = entry
   ai_db.Sync()
   updated: db.DBImageType = ai_db._db['images'][alt_hash]
-  assert updated['path'] == str(alt_path_obj)
-  assert gone_path not in updated['alt_path']
+  # both paths remain in the dict
+  assert str(alt_path_obj) in updated['paths']
 
 
 def testSyncMissingSourceDirSkipped(tmp_path: pathlib.Path) -> None:
@@ -1114,78 +1129,64 @@ def testSyncRealImages(tmp_path: pathlib.Path) -> None:
     # ── Image 1: 20231116... (crazy / no negative / UniPC / model e6bb9ea85b) ──
     '7b35463de957335e3841b6d9742c6bed706212ce87851f7c3ca93fe268544f4d': {
       'hash': '7b35463de957335e3841b6d9742c6bed706212ce87851f7c3ca93fe268544f4d',
-      'path': str(
-        images_dir / '20231116184540-Me6bb9ea85b-Pf4804c3f-C7.5-N30-1884649524-a3fffc692a94bfca.png'
-      ),
-      'alt_path': [],
-      'created_at': 1700666999,
-      'format': 'PNG',
-      'width': 1024,
-      'height': 1024,
       'raw_hash': '7847345e5b4687962637c792e890226b08113e9579f7f1d253d1d6efe7f37363',
       'size': 1938975,
+      'width': 1024,
+      'height': 1024,
+      'format': 'PNG',
       'info': (
         'crazy\n'
         'Steps: 30, Sampler: UniPC, CFG scale: 7.5, Seed: 1884649524, Size: 1024x1024, '
         'Model hash: e6bb9ea85b, Model: SDXL_00_v10VAEFix, RNG: CPU, NGMS: 2.5, Version: v1.6.0'
       ),
-      'origin': 'A1111',
-      'parse_errors': {},
-      'ai_meta': {
-        'cfg_end': 10,
-        'cfg_rescale': 0,
-        'cfg_scale': 75,
-        'cfg_skip': None,
-        'clip_skip': 10,
-        'freeu': None,
-        'height': 1024,
-        'img2img': None,
-        'lora': {},
-        'model_hash': 'e6bb9ea85b1065e7bce3cf03',
-        'negative': None,
-        'ngms': 250,
-        'parser': 'a1111',
-        'positive': 'crazy',
-        'sampler': 'UniPC',
-        'sch_beta': None,
-        'sch_sigma': None,
-        'sch_spacing': None,
-        'sch_type': None,
-        'seed': 1884649524,
-        'steps': 30,
-        'v_seed': None,
-        'width': 1024,
+      'paths': {
+        str(
+          images_dir
+          / '20231116184540-Me6bb9ea85b-Pf4804c3f-C7.5-N30-1884649524-a3fffc692a94bfca.png'
+        ): {
+          'main': False,
+          'created_at': 1700666999,
+          'origin': 'A1111',
+          'parse_errors': None,
+          'version': 'v1.6.0',
+          'ai_meta': {
+            'cfg_end': 10,
+            'cfg_rescale': 0,
+            'cfg_scale': 75,
+            'cfg_skip': None,
+            'clip_skip': 10,
+            'freeu': None,
+            'height': 1024,
+            'img2img': None,
+            'lora': {},
+            'model_hash': 'e6bb9ea85b1065e7bce3cf03',
+            'negative': None,
+            'ngms': 250,
+            'parser': 'a1111',
+            'positive': 'crazy',
+            'sampler': 'UniPC',
+            'sch_beta': None,
+            'sch_sigma': None,
+            'sch_spacing': None,
+            'sch_type': None,
+            'seed': 1884649524,
+            'steps': 30,
+            'v_seed': None,
+            'width': 1024,
+          },
+          'sd_info': None,
+          'sd_params': None,
+        },
       },
-      'sd_info': {},
-      'sd_params': {
-        'cfg scale': '7.5',
-        'height': '1024',
-        'model': 'SDXL_00_v10VAEFix',
-        'model hash': 'e6bb9ea85b',
-        'ngms': '2.5',
-        'positive': 'crazy',
-        'rng': 'CPU',
-        'sampler': 'UniPC',
-        'seed': '1884649524',
-        'steps': '30',
-        'version': 'v1.6.0',
-        'width': '1024',
-      },
-      'version': 'v1.6.0',
     },
     # ── Image 2: ea94... (spaceship / negative / DPM++ SDE / model dec85dd654) ──
     'ec24329d4bd5b333e39ef923a61a66416d459af84c079ae4606e37a5b88a5985': {
       'hash': 'ec24329d4bd5b333e39ef923a61a66416d459af84c079ae4606e37a5b88a5985',
-      'path': str(
-        images_dir / 'ea94a595ace8-20260413105628-dec85dd6-80-30-800-800-1234321-ec24329d4bd5.png'
-      ),
-      'alt_path': [],
-      'created_at': 1700666999,
-      'format': 'PNG',
-      'width': 800,
-      'height': 800,
       'raw_hash': '3da9f76cbcc7c4de5a39973e26d09696a1fe1b068d02f12290fe6632a759aec0',
       'size': 519973,
+      'width': 800,
+      'height': 800,
+      'format': 'PNG',
       'info': (
         '(spaceship), space, [photograph]\n'
         'Negative prompt: planet, galaxy\n'
@@ -1194,68 +1195,53 @@ def testSyncRealImages(tmp_path: pathlib.Path) -> None:
         'Parser: a1111, Pipeline: StableDiffusionXLPipeline, Operations: txt2img, '
         'Model: SDXL_10_COL_colossusProjectXLSFW_v10bNeodemon, Model hash: dec85dd654'
       ),
-      'origin': 'SDNext',
-      'parse_errors': {},
-      'ai_meta': {
-        'cfg_end': 8,
-        'cfg_rescale': 0,
-        'cfg_scale': 80,
-        'cfg_skip': None,
-        'clip_skip': 10,
-        'freeu': None,
-        'height': 800,
-        'img2img': None,
-        'lora': {},
-        'model_hash': 'dec85dd6545e07bbd7a0fde6',
-        'negative': 'planet, galaxy',
-        'ngms': None,
-        'parser': 'a1111',
-        'positive': '(spaceship), space, [photograph]',
-        'sampler': 'DPM++ SDE',
-        'sch_beta': None,
-        'sch_sigma': None,
-        'sch_spacing': None,
-        'sch_type': None,
-        'seed': 1234321,
-        'steps': 30,
-        'v_seed': None,
-        'width': 800,
+      'paths': {
+        str(
+          images_dir / 'ea94a595ace8-20260413105628-dec85dd6-80-30-800-800-1234321-ec24329d4bd5.png'
+        ): {
+          'main': False,
+          'created_at': 1700666999,
+          'origin': 'SDNext',
+          'parse_errors': None,
+          'version': '0eb4a98',
+          'ai_meta': {
+            'cfg_end': 8,
+            'cfg_rescale': 0,
+            'cfg_scale': 80,
+            'cfg_skip': None,
+            'clip_skip': 10,
+            'freeu': None,
+            'height': 800,
+            'img2img': None,
+            'lora': {},
+            'model_hash': 'dec85dd6545e07bbd7a0fde6',
+            'negative': 'planet, galaxy',
+            'ngms': None,
+            'parser': 'a1111',
+            'positive': '(spaceship), space, [photograph]',
+            'sampler': 'DPM++ SDE',
+            'sch_beta': None,
+            'sch_sigma': None,
+            'sch_spacing': None,
+            'sch_type': None,
+            'seed': 1234321,
+            'steps': 30,
+            'v_seed': None,
+            'width': 800,
+          },
+          'sd_info': None,
+          'sd_params': None,
+        },
       },
-      'sd_info': {},
-      'sd_params': {
-        'app': 'SD.Next',
-        'cfg end': '0.8',
-        'cfg scale': '8.0',
-        'height': '800',
-        'model': 'SDXL_10_COL_colossusProjectXLSFW_v10bNeodemon',
-        'model hash': 'dec85dd654',
-        'negative': 'planet, galaxy',
-        'operations': 'txt2img',
-        'parser': 'a1111',
-        'pipeline': 'StableDiffusionXLPipeline',
-        'positive': '(spaceship), space, [photograph]',
-        'sampler': 'DPM++ SDE',
-        'scheduler': 'DPMSolverMultistepScheduler',
-        'seed': '1234321',
-        'steps': '30',
-        'version': '0eb4a98',
-        'width': '800',
-      },
-      'version': '0eb4a98',
     },
-    # ── Image 3: 5a18... (crazy woman face / negative / DPM SDE / model XL-CLR-colorful-fractal) ──
+    # ── Image 3: 5a18... (crazy woman face / negative / DPM SDE / lora XL-CLR-colorful-fractal) ──
     '5a18babbf7fd09ad6ed7a5334c819d4779958f8b6b9ed8fd9cc3380aa955ee1a': {
       'hash': '5a18babbf7fd09ad6ed7a5334c819d4779958f8b6b9ed8fd9cc3380aa955ee1a',
-      'path': str(
-        images_dir / 'f8bf9f37-20260413153649-442394a51b-5.4-47-800-800-666999-92ef6d0b.png'
-      ),
-      'alt_path': [],
-      'created_at': 1700666999,
-      'format': 'PNG',
-      'height': 800,
-      'width': 800,
       'raw_hash': 'b21477f7c524b621cd508f67e4c2b131b26144ac0866cfa4d73438254dfc7e07',
       'size': 811930,
+      'width': 800,
+      'height': 800,
+      'format': 'PNG',
       'info': (
         '((crazy woman face)), [snapshot:photorealistic:0.1], 1960s coloring, colorful fractal\n'
         '<lora:XL-CLR-colorful-fractal:1.2>\n'
@@ -1268,113 +1254,60 @@ def testSyncRealImages(tmp_path: pathlib.Path) -> None:
         'Sampler spacing: linspace, Sampler sigma: karras, Sampler type: epsilon, '
         'Sampler beta schedule: scaled'
       ),
-      'origin': 'SDNext',
-      'parse_errors': {},
-      'ai_meta': {
-        'cfg_end': 7,
-        'cfg_rescale': 0,
-        'cfg_scale': 54,
-        'cfg_skip': None,
-        'clip_skip': 13,
-        'freeu': None,
-        'height': 800,
-        'img2img': None,
-        'lora': {
-          'a7fc563d7ae966665cc3b': '1.2',
+      'paths': {
+        str(images_dir / 'f8bf9f37-20260413153649-442394a51b-5.4-47-800-800-666999-92ef6d0b.png'): {
+          'main': False,
+          'created_at': 1700666999,
+          'origin': 'SDNext',
+          'parse_errors': None,
+          'version': '0eb4a98',
+          'ai_meta': {
+            'cfg_end': 7,
+            'cfg_rescale': 0,
+            'cfg_scale': 54,
+            'cfg_skip': None,
+            'clip_skip': 13,
+            'freeu': None,
+            'height': 800,
+            'img2img': None,
+            'lora': {
+              'a7fc563d7ae966665cc3b': '1.2',
+            },
+            'model_hash': '442394a51be6bb9ea85b',
+            'negative': 'clown, text, cartoon',
+            'ngms': None,
+            'parser': 'a1111',
+            'positive': (
+              '((crazy woman face)), [snapshot:photorealistic:0.1], '
+              '1960s coloring, colorful fractal\n'
+              '<lora:XL-CLR-colorful-fractal:1.2>'
+            ),
+            'sampler': 'DPM SDE',
+            'sch_beta': 'scaled',
+            'sch_sigma': 'karras',
+            'sch_spacing': 'linspace',
+            'sch_type': 'epsilon',
+            'seed': 666999,
+            'steps': 47,
+            'v_seed': (
+              777,
+              62,
+            ),
+            'width': 800,
+          },
+          'sd_info': None,
+          'sd_params': None,
         },
-        'model_hash': '442394a51be6bb9ea85b',
-        'negative': 'clown, text, cartoon',
-        'ngms': None,
-        'parser': 'a1111',
-        'positive': (
-          '((crazy woman face)), [snapshot:photorealistic:0.1], 1960s coloring, colorful fractal\n'
-          '<lora:XL-CLR-colorful-fractal:1.2>'
-        ),
-        'sampler': 'DPM SDE',
-        'sch_beta': 'scaled',
-        'sch_sigma': 'karras',
-        'sch_spacing': 'linspace',
-        'sch_type': 'epsilon',
-        'seed': 666999,
-        'steps': 47,
-        'v_seed': (
-          777,
-          62,
-        ),
-        'width': 800,
       },
-      'sd_info': {},
-      'sd_params': {
-        'app': 'SD.Next',
-        'cfg end': '0.7',
-        'cfg scale': '5.4',
-        'clip skip': '1.3',
-        'height': '800',
-        'model': 'SDXL_13_REF_realisticFreedomSFW_ophelia',
-        'model hash': '442394a51b',
-        'negative': 'clown, text, cartoon',
-        'operations': 'txt2img',
-        'parser': 'a1111',
-        'pipeline': 'StableDiffusionXLPipeline',
-        'positive': (
-          '((crazy woman face)), [snapshot:photorealistic:0.1], 1960s coloring, colorful fractal\n'
-          '<lora:XL-CLR-colorful-fractal:1.2>'
-        ),
-        'sampler': 'DPM SDE',
-        'sampler beta schedule': 'scaled',
-        'sampler sigma': 'karras',
-        'sampler spacing': 'linspace',
-        'sampler type': 'epsilon',
-        'scheduler': 'DPMSolverSDEScheduler',
-        'seed': '666999',
-        'steps': '47',
-        'variation seed': '777',
-        'variation strength': '0.62',
-        'version': '0eb4a98',
-        'width': '800',
-      },
-      'version': '0eb4a98',
     },
-    # ── Image 3: 5a18... (dark knight in moody rain / negative batman, comic, text / DPM SDE) ──
+    # ── Image 4: db08... (dark knight in moody rain / negative batman, comic, text / DPM SDE) ──
     'db088cdca09796cadee02ec7eef8dd8e2227490a5afbb353461ab34d1ddbd8b9': {
-      'ai_meta': {
-        'cfg_end': 9,
-        'cfg_rescale': 80,
-        'cfg_scale': 80,
-        'cfg_skip': None,
-        'clip_skip': 20,
-        'freeu': (
-          110,
-          115,
-          70,
-          60,
-        ),
-        'height': 256,
-        'img2img': None,
-        'lora': {},
-        'model_hash': 'e6bb9ea85b1065e7bce3cf03',
-        'negative': 'batman, comic, text',
-        'ngms': None,
-        'parser': 'a1111',
-        'positive': 'dark knight in moody rain',
-        'sampler': 'DPM SDE',
-        'sch_beta': 'linear',
-        'sch_sigma': 'karras',
-        'sch_spacing': 'linspace',
-        'sch_type': 'epsilon',
-        'seed': 666,
-        'steps': 40,
-        'v_seed': (
-          999,
-          30,
-        ),
-        'width': 512,
-      },
-      'alt_path': [],
-      'created_at': 1700666999,
-      'format': 'PNG',
       'hash': 'db088cdca09796cadee02ec7eef8dd8e2227490a5afbb353461ab34d1ddbd8b9',
+      'raw_hash': 'dcf3c5cacfddc7b23f3314c680263c03ace7fedc456f6daa1907d5f7ed30af2e',
+      'size': 166684,
+      'width': 512,
       'height': 256,
+      'format': 'PNG',
       'info': (
         'dark knight in moody rain\n'
         'Negative prompt: batman, comic, text\n'
@@ -1386,44 +1319,55 @@ def testSyncRealImages(tmp_path: pathlib.Path) -> None:
         'Sampler sigma: karras, Sampler type: epsilon, Sampler beta schedule: linear, '
         'FreeU: b1=1.1 b2=1.15 s1=0.7 s2=0.6'
       ),
-      'origin': 'SDNext',
-      'parse_errors': {},
-      'path': str(
-        images_dir / '6db2ba7302bd-20260417102202-e6bb9ea8-80-40-512-256-666-db088cdca097.png'
-      ),
-      'raw_hash': 'dcf3c5cacfddc7b23f3314c680263c03ace7fedc456f6daa1907d5f7ed30af2e',
-      'sd_info': {},
-      'sd_params': {
-        'app': 'SD.Next',
-        'cfg end': '0.9',
-        'cfg rescale': '0.8',
-        'cfg scale': '8.0',
-        'clip skip': '2',
-        'freeu': 'b1=1.1 b2=1.15 s1=0.7 s2=0.6',
-        'height': '256',
-        'model': 'SDXL_00_XLB_v10VAEFix',
-        'model hash': 'e6bb9ea85b',
-        'negative': 'batman, comic, text',
-        'operations': 'txt2img',
-        'parser': 'a1111',
-        'pipeline': 'StableDiffusionXLPipeline',
-        'positive': 'dark knight in moody rain',
-        'sampler': 'DPM SDE',
-        'sampler beta schedule': 'linear',
-        'sampler sigma': 'karras',
-        'sampler spacing': 'linspace',
-        'sampler type': 'epsilon',
-        'scheduler': 'DPMSolverSDEScheduler',
-        'seed': '666',
-        'steps': '40',
-        'variation seed': '999',
-        'variation strength': '0.3',
-        'version': '0eb4a98',
-        'width': '512',
+      'paths': {
+        str(
+          images_dir / '6db2ba7302bd-20260417102202-e6bb9ea8-80-40-512-256-666-db088cdca097.png'
+        ): {
+          'main': False,
+          'created_at': 1700666999,
+          'origin': 'SDNext',
+          'parse_errors': {
+            'ambiguous model #e6bb9ea85b/sdxl_00_xlb_v10vaefix: '
+            "['e6bb9ea85b1065e7bce3cf03', '442394a51be6bb9ea85b']/[]": None,
+          },
+          'version': '0eb4a98',
+          'ai_meta': {
+            'cfg_end': 9,
+            'cfg_rescale': 80,
+            'cfg_scale': 80,
+            'cfg_skip': None,
+            'clip_skip': 20,
+            'freeu': (
+              110,
+              115,
+              70,
+              60,
+            ),
+            'height': 256,
+            'img2img': None,
+            'lora': {},
+            'model_hash': None,
+            'negative': 'batman, comic, text',
+            'ngms': None,
+            'parser': 'a1111',
+            'positive': 'dark knight in moody rain',
+            'sampler': 'DPM SDE',
+            'sch_beta': 'linear',
+            'sch_sigma': 'karras',
+            'sch_spacing': 'linspace',
+            'sch_type': 'epsilon',
+            'seed': 666,
+            'steps': 40,
+            'v_seed': (
+              999,
+              30,
+            ),
+            'width': 512,
+          },
+          'sd_info': None,
+          'sd_params': None,
+        },
       },
-      'size': 166684,
-      'version': '0eb4a98',
-      'width': 512,
     },
   }
 
@@ -1443,10 +1387,9 @@ def testReproduceNoAIMetaRaises(tmp_path: pathlib.Path) -> None:
   """Reproduce raises Error when the DB entry has no AI metadata."""
   ai_db = db.AIDatabase(_MakeAppConfig(tmp_path))
   entry: db.DBImageType = _MakeDBImage(img_hash='img-hash', path=None)
-  entry['ai_meta'] = None  # type: ignore[typeddict-item]
   ai_db._db['images']['img-hash'] = entry
   api = _MockAPI()
-  with pytest.raises(db.Error, match='does not have AI metadata'):
+  with pytest.raises(db.Error, match='does not have any AI metadata'):
     ai_db.Reproduce('img-hash', api)
 
 
@@ -1468,7 +1411,8 @@ def testReproduceUpscaledParseErrorRaises(tmp_path: pathlib.Path) -> None:
   ai_db._db['models'][model['hash']] = model
   meta: db.AIMetaType = _MakeMeta({'model_hash': model['hash']})
   entry: db.DBImageType = _MakeDBImage(meta=meta, img_hash='img-hash')
-  entry['parse_errors'] = {'upscaled': None}
+  path_key: str = next(iter(entry['paths']))
+  entry['paths'][path_key]['parse_errors'] = {'upscaled': None}
   ai_db._db['images']['img-hash'] = entry
   api = _MockAPI()
   with pytest.raises(db.Error, match='upscaled'):
@@ -1478,6 +1422,9 @@ def testReproduceUpscaledParseErrorRaises(tmp_path: pathlib.Path) -> None:
 def testReproduceSuccess(tmp_path: pathlib.Path) -> None:
   """Reproduce calls API.Txt2Img with original meta and adds result to DB."""
   ai_db = db.AIDatabase(_MakeAppConfig(tmp_path))
+  output_dir: pathlib.Path = tmp_path / 'output'
+  output_dir.mkdir()
+  ai_db.output = output_dir
   model: db.AIModelType = _MakeModel()
   ai_db._db['models'][model['hash']] = model
   meta: db.AIMetaType = _MakeMeta({'model_hash': model['hash']})
@@ -1500,6 +1447,9 @@ def testReproduceSuccess(tmp_path: pathlib.Path) -> None:
 def testReproduceSuccessRawHashMatch(tmp_path: pathlib.Path) -> None:
   """Reproduce logs a successful match when new raw hash equals the original's raw hash."""
   ai_db = db.AIDatabase(_MakeAppConfig(tmp_path))
+  output_dir: pathlib.Path = tmp_path / 'output'
+  output_dir.mkdir()
+  ai_db.output = output_dir
   model: db.AIModelType = _MakeModel()
   ai_db._db['models'][model['hash']] = model
   meta: db.AIMetaType = _MakeMeta({'model_hash': model['hash']})

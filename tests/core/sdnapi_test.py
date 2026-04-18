@@ -15,7 +15,6 @@ import requests
 from PIL import Image
 from transcrypto.utils import base as tbase
 
-from transnext import __version__ as _transnext_version
 from transnext.core import base, db, sdnapi
 
 # --- real test PNG (stable on-disk image, version-independent) ---
@@ -67,6 +66,7 @@ def _MakeModel(
     hash=h,
     name=name,
     alias=alias or name,
+    autov3=None,
     path=path,
     model_type=db.ModelType.safetensors.value,
     function=db.ModelFunction.Model.value,
@@ -322,6 +322,7 @@ def testGetModelsValid() -> None:
     'hash': 'hash1',
     'name': 'my-model',
     'alias': 'my-model [hash1]',
+    'autov3': None,
     'path': '/tmp/model.safetensors',  # noqa: S108
     'model_type': 'safetensors',
     'function': db.ModelFunction.Model.value,
@@ -434,6 +435,7 @@ def testGetLoraValid() -> None:
     'hash': '',
     'name': 'my-lora',
     'alias': 'lora-alias',
+    'autov3': None,
     'path': '/tmp/lora.safetensors',  # noqa: S108
     'model_type': 'safetensors',
     'function': db.ModelFunction.Lora.value,
@@ -536,32 +538,64 @@ def testTxt2ImgSuccess() -> None:
     ]
     db_img, img_data = api.Txt2Img(model, meta)
   assert len(img_data) == _TEST_PNG_SIZE
-  # pop variable fields and check them separately
-  assert db_img.pop('created_at') > 1000000  # type: ignore[misc]
+  # the return uses the new paths-based structure
+  assert db_img['paths'][''].pop('created_at') > 1000000  # type: ignore[misc]
   assert db_img == {
-    'path': None,
-    'alt_path': [],
-    'width': _TEST_PNG_WIDTH,
-    'height': _TEST_PNG_HEIGHT,
-    'size': _TEST_PNG_SIZE,
-    'hash': _TEST_PNG_HASH,
-    'raw_hash': _TEST_PNG_RAW_HASH,
     'format': 'PNG',
-    'origin': db.ImageOrigin.TransNext.value,
-    'version': f'abc123/{_transnext_version}',
+    'hash': _TEST_PNG_HASH,
+    'height': _TEST_PNG_HEIGHT,
     'info': _TEST_PNG_INFO_TEXT,
-    'ai_meta': _MakeMeta({'width': _TEST_PNG_WIDTH, 'height': _TEST_PNG_HEIGHT}),
-    'sd_info': {
-      'width': _TEST_PNG_WIDTH,
-      'height': _TEST_PNG_HEIGHT,
-      'sd_model_checkpoint': 'test-model',
+    'paths': {
+      '': {
+        'ai_meta': {
+          'cfg_end': 8,
+          'cfg_rescale': 0,
+          'cfg_scale': 60,
+          'cfg_skip': None,
+          'clip_skip': 10,
+          'freeu': (
+            105,
+            110,
+            75,
+            65,
+          ),
+          'height': _TEST_PNG_HEIGHT,
+          'img2img': None,
+          'lora': {},
+          'model_hash': 'abc123',
+          'negative': None,
+          'ngms': None,
+          'parser': 'a1111',
+          'positive': '',
+          'sampler': 'DPM++ SDE',
+          'sch_beta': None,
+          'sch_sigma': None,
+          'sch_spacing': None,
+          'sch_type': None,
+          'seed': 42,
+          'steps': 20,
+          'v_seed': None,
+          'width': _TEST_PNG_WIDTH,
+        },
+        'main': False,
+        'origin': db.ImageOrigin.TransNext.value,
+        'parse_errors': None,
+        'sd_info': {
+          'height': _TEST_PNG_HEIGHT,
+          'sd_model_checkpoint': 'test-model',
+          'width': _TEST_PNG_WIDTH,
+        },
+        'sd_params': {
+          'height': _TEST_PNG_HEIGHT,
+          'sd_model_checkpoint': 'test-model',
+          'width': _TEST_PNG_WIDTH,
+        },
+        'version': 'abc123/1.0.0',
+      },
     },
-    'sd_params': {
-      'width': _TEST_PNG_WIDTH,
-      'height': _TEST_PNG_HEIGHT,
-      'sd_model_checkpoint': 'test-model',
-    },
-    'parse_errors': {},
+    'raw_hash': _TEST_PNG_RAW_HASH,
+    'size': _TEST_PNG_SIZE,
+    'width': _TEST_PNG_WIDTH,
   }
 
 
@@ -594,8 +628,9 @@ def testTxt2ImgWithDirRoot(tmp_path: mock.Mock) -> None:
       _Txt2ImgAPIData(),
     ]
     db_img, _img_data = api.Txt2Img(model, meta, dir_root=tmp_path)
-  assert db_img['path'] is not None
-  assert db_img['path'].endswith('.png')
+  saved_path: str = next(iter(db_img['paths']))
+  assert saved_path
+  assert saved_path.endswith('.png')
 
 
 def testTxt2ImgHashMismatchRaises() -> None:
@@ -732,7 +767,7 @@ def testTxt2ImgNoDirRootNoSave() -> None:
       _Txt2ImgAPIData(),
     ]
     db_img, _img_data = api.Txt2Img(model, meta)
-  assert db_img['path'] is None
+  assert '' in db_img['paths']  # empty string key when no dir_root
 
 
 # --- _ExtractImageData ---

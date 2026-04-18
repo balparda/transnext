@@ -142,6 +142,9 @@ Usage: gen make [OPTIONS] POSITIVE_PROMPT
 │                                                                                              generated images to its default local storage; default:    │
 │                                                                                              False (images will only be saved in the TransNext DB)      │
 │                                                                                                                                     │
+│ --redo             --no-redo                                                                 If True, forces operation to re-do; if False (default)     │
+│                                                                                              will skip unnecessary operations                           │
+│                                                                                                                                       │
 │ --help                                                                                       Show this message and exit.                                │
 ╰─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
                                                                                                                                                            
@@ -205,6 +208,7 @@ Usage: gen sync [OPTIONS] [ADD_DIR]
 │ --force-api    --no-force-api      If True, SDNext API server will be required; if False (default) will still TRY to connect to API, but if not found   │
 │                                    will proceed standalone                                                                                              │
 │                                                                                                                                  │
+│ --redo         --no-redo           If True, forces operation to re-do; if False (default) will skip unnecessary operations            │
 │ --help                             Show this message and exit.                                                                                          │
 ╰─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
                                                                                                                                                            

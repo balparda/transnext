@@ -50,7 +50,7 @@ def _MockDB() -> mock.MagicMock:
   mock_db_inst.Path.return_value = None
   # Reproduce() returns a tuple of (entry_dict, image_bytes)
   mock_db_inst.Reproduce.return_value = (
-    {'hash': 'new-hash-123', 'path': '/output/2026-04-17/new-hash-123.png'},
+    {'hash': 'new-hash-123', 'paths': {'/output/2026-04-17/new-hash-123.png': {}}},
     b'image-bytes',
   )
   return mock_db_inst
