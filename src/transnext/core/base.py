@@ -515,6 +515,30 @@ SD_REDO_OPTION: typer.models.OptionInfo = typer.Option(
   help=('If True, forces operation to re-do; if False (default) will skip unnecessary operations'),
 )
 
+# experiment options
+
+SD_EXPERIMENT_SEEDS_OPTION: typer.models.OptionInfo = typer.Option(
+  '-1',
+  '--seeds',
+  help=(
+    'Comma-separated list of seed values for the experiment runs; '
+    f'each seed must be 1 ≤ s ≤ {SD_MAX_SEED} or 0/-1 for a random seed; '
+    'example: --seeds "666,-1,999"; default: "-1" (no proper seed axis, only one random seed)'
+  ),
+)
+SD_EXPERIMENT_AXIS_OPTION: typer.models.OptionInfo = typer.Option(
+  ...,
+  '--axis',
+  help=(
+    'Experiment axis definition (repeatable, order is preserved); '
+    'format: "KEY:VALUE1,VALUE2,..."; '
+    'valid keys: cfg_scale (float values), sampler (names), '
+    'model_hash (key prefixes), positive (prompt replacements), '
+    'negative (prompt replacements); '
+    'example: --axis "sampler:Euler,DPM++ SDE" --axis "cfg_scale:6.0,7.5"'
+  ),
+)
+
 
 @dataclasses.dataclass(kw_only=True, slots=True, frozen=True)
 class TransNextConfig(clibase.CLIConfig):
@@ -601,6 +625,184 @@ def GetFileCreation(path: pathlib.Path) -> int:
     raise Error(f'File not found: {path}')
   stat_result: os.stat_result = path.stat()
   return int(getattr(stat_result, 'st_birthtime', stat_result.st_mtime))
+
+
+def ParseIntList(raw: str, *, name: str, min_val: int, max_val: int) -> list[int]:
+  """Parse a comma-separated string of integers into a validated list.
+
+  Args:
+    raw: The raw comma-separated string (e.g., "666,999,1234").
+    name: Human-readable name of the parameter, for error messages.
+    min_val: Minimum allowed value (inclusive).
+    max_val: Maximum allowed value (inclusive).
+
+  Returns:
+    A list of validated integers, in the order provided, with duplicates removed.
+
+  Raises:
+    Error: If any value is not a valid integer or is out of range, or if the list is empty.
+
+  """
+  parts: list[str] = [p.strip() for p in raw.split(',') if p.strip()]
+  if not parts:
+    raise Error(f'{name}: empty list')
+  result: list[int] = []
+  seen: set[int] = set()
+  for p in parts:
+    try:
+      v: int = int(p)
+    except ValueError:
+      raise Error(f'{name}: invalid integer {p!r}') from None
+    if not (min_val <= v <= max_val):
+      raise Error(f'{name}: value {v} out of range [{min_val}, {max_val}]')
+    if v not in seen:
+      result.append(v)
+      seen.add(v)
+  return result
+
+
+def ParseFloatListAsScaledInt(
+  raw: str,
+  *,
+  name: str,
+  scale: int,
+  min_val: float,
+  max_val: float,
+) -> list[int]:
+  """Parse a comma-separated string of floats into a validated list of scaled integers.
+
+  For example, CFG values "6.0,7.5" with scale=10 become [60, 75].
+
+  Args:
+    raw: The raw comma-separated string (e.g., "6.0,7.5").
+    name: Human-readable name of the parameter, for error messages.
+    scale: Multiplier to convert float → int (e.g., 10 for CFG, 100 for rescale).
+    min_val: Minimum allowed float value (inclusive).
+    max_val: Maximum allowed float value (inclusive).
+
+  Returns:
+    A list of validated scaled integers, in the order provided, with duplicates removed.
+
+  Raises:
+    Error: If any value is not a valid float or is out of range, or if the list is empty.
+
+  """
+  parts: list[str] = [p.strip() for p in raw.split(',') if p.strip()]
+  if not parts:
+    raise Error(f'{name}: empty list')
+  result: list[int] = []
+  seen: set[int] = set()
+  for p in parts:
+    try:
+      fv: float = float(p)
+    except ValueError:
+      raise Error(f'{name}: invalid float {p!r}') from None
+    if not (min_val <= fv <= max_val):
+      raise Error(f'{name}: value {fv} out of range [{min_val}, {max_val}]')
+    iv: int = round(fv * scale)
+    if iv not in seen:
+      result.append(iv)
+      seen.add(iv)
+  return result
+
+
+def ParseStrList(raw: str, *, name: str) -> list[str]:
+  """Parse a comma-separated string of values into a validated list.
+
+  Args:
+    raw: The raw comma-separated string (e.g., "Euler,DPM++ SDE").
+    name: Human-readable name of the parameter, for error messages.
+
+  Returns:
+    A list of stripped, non-empty strings, in the order provided, with duplicates removed.
+
+  Raises:
+    Error: If the list is empty after stripping.
+
+  """
+  parts: list[str] = [p.strip() for p in raw.split(',') if p.strip()]
+  if not parts:
+    raise Error(f'{name}: empty list')
+  result: list[str] = []
+  seen: set[str] = set()
+  for p in parts:
+    if p not in seen:
+      result.append(p)
+      seen.add(p)
+  return result
+
+
+# valid axis keys for the experiment CLI (maps user-facing key name to internal AxisField value)
+AXIS_KEYS: dict[str, str] = {
+  'cfg_scale': 'cfg_scale',
+  'sampler': 'sampler',
+  'model_hash': 'model_hash',
+  'positive': 'positive',
+  'negative': 'negative',
+}
+
+# axis keys whose values are int-typed (after scaling); all others are str-typed
+_AXIS_INT_KEYS: frozenset[str] = frozenset({'cfg_scale'})
+
+# scaling factors for float→int conversion per axis key
+_AXIS_SCALE: dict[str, int] = {'cfg_scale': 10}
+
+# range limits for float axes (min, max as user-facing floats)
+_AXIS_FLOAT_RANGE: dict[str, tuple[float, float]] = {
+  'cfg_scale': (SD_MIN_CFG_SCALE / 10, SD_MAX_CFG_SCALE / 10),
+}
+
+
+def ParseAxisDefinition(raw: str) -> tuple[str, list[str] | list[int]]:
+  """Parse a single axis definition string in "KEY:VAL1,VAL2,..." format.
+
+  The key is validated against `AXIS_KEYS`. For `cfg_scale`, values are parsed as floats
+  and converted to scaled ints (x10). For all other keys, values are kept as strings.
+
+  Args:
+    raw: Raw axis definition string (e.g., "sampler:Euler,DPM++ SDE" or "cfg_scale:6.0,7.5").
+
+  Returns:
+    A tuple of (axis_key, values) where axis_key is the internal AxisField value string
+    and values is a list of int (for cfg_scale) or str (for all others).
+
+  Raises:
+    Error: If the format is invalid, the key is unknown, or values fail validation.
+
+  """
+  if ':' not in raw:
+    raise Error(
+      f'--axis: invalid format {raw!r}; expected "KEY:VAL1,VAL2,..."; '
+      f'valid keys: {", ".join(sorted(AXIS_KEYS))}'
+    )
+  key_str, values_str = raw.split(':', 1)
+  key_str = key_str.strip()
+  if key_str not in AXIS_KEYS:
+    raise Error(f'--axis: unknown key {key_str!r}; valid keys: {", ".join(sorted(AXIS_KEYS))}')
+  axis_key: str = AXIS_KEYS[key_str]
+  # parse values based on key type
+  if key_str in _AXIS_INT_KEYS:
+    min_v, max_v = _AXIS_FLOAT_RANGE[key_str]
+    return (
+      axis_key,
+      ParseFloatListAsScaledInt(
+        values_str,
+        name=f'--axis "{key_str}:..."',
+        scale=_AXIS_SCALE[key_str],
+        min_val=min_v,
+        max_val=max_v,
+      ),
+    )
+  # string-valued axis
+  values: list[str] = ParseStrList(values_str, name=f'--axis "{key_str}:..."')
+  # validate sampler names eagerly
+  if key_str == 'sampler':
+    for s in values:
+      try:
+        Sampler(s)
+      except ValueError:
+        raise Error(f'--axis "sampler:...": unknown sampler {s!r}') from None
+  return (axis_key, values)
 
 
 def GetBasicDataFromImage(img_bytes: bytes) -> tuple[ImageFormat, int, int, str, str | None]:

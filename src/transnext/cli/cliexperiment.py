@@ -1,9 +1,10 @@
 # SPDX-FileCopyrightText: Copyright 2026 Daniel Balparda <balparda@github.com>
 # SPDX-License-Identifier: Apache-2.0
-"""CLI: Make commands."""
+"""CLI: Experiment commands."""
 
 from __future__ import annotations
 
+import logging
 import pathlib
 
 import click
@@ -18,10 +19,58 @@ _DEBUG_RECORD: bool = False  # keep False!
 _DEBUG_RECORD_SAVE_PATH: pathlib.Path = pathlib.Path('experiment_record.json')  # root! careful!
 
 
+def _BuildAxes(raw_axes: list[str]) -> list[newton.AxisType]:
+  """Build experiment axes from repeatable --axis CLI option strings.
+
+  Each raw string has the format "KEY:VAL1,VAL2,...". The order of the list
+  determines the order of the experiment axes. Duplicate keys are rejected.
+
+  Args:
+    raw_axes: List of raw axis definition strings, in the user-provided order.
+
+  Returns:
+    A list of `newton.AxisType` objects for the experiment, in CLI order.
+
+  Raises:
+    click.UsageError: If no axes are provided or a key is duplicated.
+
+  """
+  if not raw_axes:
+    raise click.UsageError(
+      f'At least one --axis is required; valid keys: {", ".join(sorted(base.AXIS_KEYS))}'
+    )
+  axes: list[newton.AxisType] = []
+  seen_keys: set[str] = set()
+  for raw in raw_axes:
+    key, values = base.ParseAxisDefinition(raw)
+    if key in seen_keys:
+      raise click.UsageError(f'Duplicate --axis key {key!r}; each axis can only appear once')
+    seen_keys.add(key)
+    axes.append(newton.AxisType(key=key, values=values))
+  logging.info(
+    f'Experiment axes ({len(axes)}): '  # noqa: G003
+    + ', '.join(f'{a["key"]}({len(a["values"])} values)' for a in axes)
+  )
+  return axes
+
+
 @experiment.app.command(
   'new',
-  help='New experiment.',
-  epilog='',  # TODO
+  help=(
+    'Create and run a new experiment. '
+    'An experiment varies one or more axes (CFG, sampler, model, positive/negative prompt) '
+    'across a set of seed values. Provide at least one --axis and --seeds. '
+    'The order of --axis options on the command line determines the axis order in the experiment.'
+  ),
+  epilog=(
+    'Examples:\n\n\n\n'
+    '$ poetry run experiment new "a photo of a cat" --seeds "666,-1,999" '
+    '--axis "sampler:Euler,DPM++ SDE"\n\n'
+    '<<runs 2x2 grid: 2 samplers x 2 seeds>>\n\n\n\n'
+    '$ poetry run experiment new "a photo of a % animal" --seeds "42" '
+    '--axis "positive:black cat,white dog" --axis "cfg_scale:6.0,9.0"\n\n'
+    '<<runs 2x2x1 grid: 2 prompts x 2 CFGs x 1 seed>>'
+  ),
 )
 @clibase.CLIErrorGuard
 def New(  # documentation is help/epilog/args # noqa: D103
@@ -53,6 +102,8 @@ def New(  # documentation is help/epilog/args # noqa: D103
   freeu_s2: float = base.SD_FREEU_S2_OPTION,  # type: ignore[assignment]
   backup: bool = base.SD_API_SERVER_SAVE,  # type: ignore[assignment]
   redo: bool = base.SD_REDO_OPTION,  # type: ignore[assignment]
+  seeds_raw: str = base.SD_EXPERIMENT_SEEDS_OPTION,  # type: ignore[assignment]
+  raw_axes: list[str] = base.SD_EXPERIMENT_AXIS_OPTION,  # type: ignore[assignment]
 ) -> None:
   # check sanity
   config: experiment.ExperimentConfig = ctx.obj
@@ -62,6 +113,12 @@ def New(  # documentation is help/epilog/args # noqa: D103
     raise click.UsageError(
       f'Sampler {sampler.value!r} not supported by SDNext (it was valid in A1111 but not in SDNext)'
     )
+  # parse experiment seeds and axes from CLI input
+  seed_list: list[int] = [
+    (s if s >= 1 else base.SeedGen())  # replace -1s with random seeds
+    for s in base.ParseIntList(seeds_raw, name='--seeds', min_val=-1, max_val=base.SD_MAX_SEED)
+  ]
+  axes: list[newton.AxisType] = _BuildAxes(raw_axes)
   # open API and DB
   api = sdnapi.API(
     base.MakeURL(config.host, config.port), server_save_images=backup, record=_DEBUG_RECORD
@@ -112,11 +169,8 @@ def New(  # documentation is help/epilog/args # noqa: D103
           ),
         }
       ),
-      [  # TODO: get this from CLI UI
-        newton.AxisType(key='steps', values=[20, 40]),
-        newton.AxisType(key='sampler', values=['Euler', 'Euler a']),
-      ],
-      [666, 999],  # TODO: get this from CLI UI
+      axes,
+      seed_list,
     )
     for _ in exp.Run(api, redo=redo):
       pass
