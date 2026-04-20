@@ -38,7 +38,7 @@ class _DBType(TypedDict):
   """DB object type.
 
   Should be suitable for JSON and pickle serialization, so no complex types or custom classes.
-  Don't use sets.
+  Don't use sets. Tuples are also bad, they get converted to lists, then comparison fails.
   """
 
   version: int  # DB version; increment on save
@@ -49,6 +49,7 @@ class _DBType(TypedDict):
   lora: dict[str, AIModelType]  # {model_hash: lora/lycoris}
   known_image_sources: list[str]  # places to track images from
   image_output_dir: str | None  # current directory to save generated images to
+  experiments: dict[str, tbase.JSONDict]  # {experiment_hash: newton.ExperimentType}
 
 
 def _DBTypeFactory(overrides: dict[str, object] | None = None) -> _DBType:
@@ -67,6 +68,7 @@ def _DBTypeFactory(overrides: dict[str, object] | None = None) -> _DBType:
     'lora': {},
     'known_image_sources': [],
     'image_output_dir': None,
+    'experiments': {},
   }
   obj.update(overrides or {})  # type: ignore[typeddict-item]
   return obj
@@ -137,6 +139,8 @@ class AIModelType(TypedDict):
 
   Keep it shallow and simple, only primitive types, no complex objects or custom classes,
   to ensure it is comparable and serializable without issues. Avoid lists. No sets and enums.
+
+  Tuples are also bad, they get converted to lists, then comparison fails.
   """
 
   hash: str  # hash of the model/lora/lycoris file
@@ -160,6 +164,8 @@ class AIMetaType(TypedDict):
   Keep it shallow and simple, only primitive types, no complex objects or custom classes,
   to ensure it is comparable and serializable without issues. Avoid lists. No sets and enums.
 
+  Tuples are also bad, they get converted to lists, then comparison fails.
+
   ATTENTION: Since this is not so shallow anymore, it needs copy.deepcopy()!
   """
 
@@ -167,7 +173,7 @@ class AIMetaType(TypedDict):
   positive: str  # positive prompt used for AI processing
   negative: str | None  # negative prompt used for AI processing
   seed: int  # seed used in AI processing
-  v_seed: tuple[int, int] | None  # (variation seed, percent) or None if not used; *100 int storage
+  v_seed: AIMetaVariationSeedType | None  # variation seed or None if not used
   width: int  # image width
   height: int  # image height
   steps: int  # number of steps used in AI processing
@@ -183,11 +189,37 @@ class AIMetaType(TypedDict):
   sch_type: str | None  # base.SchedulerPredictionType string used; None is 'default'
   ngms: int | None  # A1111 only/obsolete: “Negative Guidance minimum sigma” (times 100 int storage)
   cfg_skip: int | None  # A1111 only/obsolete: “Skip Early CFG” (times 100 int storage)
-  lora: dict[str, str]  # {hash: lora_weights_string}; empty dict if no lora/lycoris used
+  lora: dict[str, str] | None  # {hash: lora_weights_string}; empty dict if no lora/lycoris used
   img2img: AIImg2ImgType | None  # img2img-specific metadata; None if txt2img
-  freeu: (
-    tuple[int, int, int, int] | None
-  )  # (b1, b2, s1, s2) FreeU backbone/skip feature scaling (times 100 int storage)
+  freeu: AIMetaFreeUType | None  # FreeU backbone/skip feature scaling (times 100 int storage)
+
+
+class AIMetaVariationSeedType(TypedDict):
+  """AI image variation seed metadata.
+
+  Keep it shallow and simple, only primitive types, no complex objects or custom classes,
+  to ensure it is comparable and serializable without issues. Avoid lists. No sets and enums.
+
+  Tuples are also bad, they get converted to lists, then comparison fails.
+  """
+
+  seed: int  # variation seed used in AI processing
+  percent: int  # variation strength percent (times 100 for int storage)
+
+
+class AIMetaFreeUType(TypedDict):
+  """AI image FreeU metadata.
+
+  Keep it shallow and simple, only primitive types, no complex objects or custom classes,
+  to ensure it is comparable and serializable without issues. Avoid lists. No sets and enums.
+
+  Tuples are also bad, they get converted to lists, then comparison fails.
+  """
+
+  b1: int  # backbone 1 scaling (times 100 for int storage)
+  b2: int  # backbone 2 scaling (times 100 for int storage)
+  s1: int  # skip 1 scaling (times 100 for int storage)
+  s2: int  # skip 2 scaling (times 100 for int storage)
 
 
 def AIMetaTypeFactory(overrides: dict[str, object] | None = None) -> AIMetaType:
@@ -229,11 +261,11 @@ def AIMetaTypeFactory(overrides: dict[str, object] | None = None) -> AIMetaType:
     cfg_skip=None,
     lora={},
     img2img=None,
-    freeu=(
-      base.SD_DEFAULT_FREEU_B1,
-      base.SD_DEFAULT_FREEU_B2,
-      base.SD_DEFAULT_FREEU_S1,
-      base.SD_DEFAULT_FREEU_S2,
+    freeu=AIMetaFreeUType(
+      b1=base.SD_DEFAULT_FREEU_B1,
+      b2=base.SD_DEFAULT_FREEU_B2,
+      s1=base.SD_DEFAULT_FREEU_S1,
+      s2=base.SD_DEFAULT_FREEU_S2,
     )
     if base.SD_DEFAULT_FREEU
     else None,
@@ -243,9 +275,13 @@ def AIMetaTypeFactory(overrides: dict[str, object] | None = None) -> AIMetaType:
   obj['seed'] = base.SeedGen() if obj['seed'] in {None, -1, 0} else obj['seed']
   if not 0 < obj['seed'] <= base.SD_MAX_SEED:
     raise Error(f'Invalid `seed` value in AIMetaType: {obj}')
-  if obj['v_seed'] is not None and obj['v_seed'][0] in {None, -1, 0} and obj['v_seed'][1] > 0:
-    obj['v_seed'] = (base.SeedGen(), obj['v_seed'][1])  # type: ignore[typeddict-item]
-  if obj['v_seed'] is not None and not 0 < obj['v_seed'][0] <= base.SD_MAX_SEED:
+  if (
+    obj['v_seed'] is not None
+    and obj['v_seed']['seed'] in {None, -1, 0}
+    and obj['v_seed']['percent'] > 0
+  ):
+    obj['v_seed']['seed'] = base.SeedGen()
+  if obj['v_seed'] is not None and not 0 < obj['v_seed']['seed'] <= base.SD_MAX_SEED:
     raise Error(f'Invalid `v_seed` value in AIMetaType: {obj}')
   # done
   return obj
@@ -346,9 +382,10 @@ class AIDatabase:
           if (meta := obj['ai_meta']) is not None:
             if (mh := meta['model_hash']) is not None and mh not in self._db['models']:
               logging.error(f'Image {h!r}/{p} has unknown model hash {mh!r}')
-            for lh in meta['lora']:
-              if lh not in self._db['lora']:
-                logging.error(f'Image {h!r}/{p} has unknown lora hash {lh!r}')
+            if meta['lora']:
+              for lh in meta['lora']:
+                if lh not in self._db['lora']:
+                  logging.error(f'Image {h!r}/{p} has unknown lora hash {lh!r}')
       # go over models and lora and check they exist
       for tp, models_dict in (('Model', self._db['models']), ('Lora', self._db['lora'])):
         for mh, model in models_dict.items():
@@ -402,6 +439,16 @@ class AIDatabase:
     """
     return _DBLabel(self._db)
 
+  @property
+  def experiments(self) -> dict[str, tbase.JSONDict]:
+    """Get the experiments stored in the database. MUTABLE!! If you alter you alter the DB.
+
+    Returns:
+      Dictionary of experiments, keyed by experiment hash.
+
+    """
+    return self._db['experiments']
+
   def Raw(self, raw_hash: str) -> set[str] | None:
     """Get set of image hashes that share the same raw hash.
 
@@ -429,6 +476,18 @@ class AIDatabase:
     except Exception:  # noqa: BLE001
       return None
     return self._paths.get(str(val_path))
+
+  def Image(self, img_hash: str) -> DBImageType | None:
+    """Get the image metadata for the given image hash.
+
+    Args:
+      img_hash: image hash to look up
+
+    Returns:
+      Image metadata for the given image hash, or None if not found
+
+    """
+    return copy.deepcopy(self._db['images'].get(img_hash))
 
   @property
   def output(self) -> pathlib.Path | None:
@@ -617,7 +676,24 @@ class AIDatabase:
       f'{[model["name"] for model in self._db["models"].values()]}'
     )
 
-  def _QueryNormalize(self, meta: AIMetaType) -> AIMetaType:
+  def GetModel(self, model_hash: str) -> AIModelType:
+    """Get the model metadata for a given model hash.
+
+    Args:
+      model_hash: The model hash to look up
+
+    Returns:
+      The AIModelType metadata corresponding to the given model hash
+
+    Raises:
+      Error: if the model hash is not found in the DB
+
+    """
+    if model_hash not in self._db['models']:
+      raise Error(f'Model with hash {model_hash!r} not found in DB')
+    return copy.deepcopy(self._db['models'][model_hash])
+
+  def QueryNormalize(self, meta: AIMetaType) -> AIMetaType:
     """Normalize an AIMetaType for consistent hashing and comparison.
 
     Args:
@@ -633,13 +709,19 @@ class AIDatabase:
     lora_weights: dict[str, tuple[str, str]] = base.LoraExtract(
       meta['positive'] + '\n' + (meta['negative'] or '')
     )
+    meta['lora'] = {} if lora_weights else None
     for lora_name, (_, weights) in lora_weights.items():
       lora_hash: str = base.FindModelHash('lora', '', lora_name, _ModelsRef(self._db['lora']))
-      meta['lora'][lora_hash] = weights
+      meta['lora'][lora_hash] = weights  # type: ignore[index]
     return meta
 
   def Txt2Img(
-    self, meta: AIMetaType, api: APIProtocol, *, redo: bool = False
+    self,
+    meta: AIMetaType,
+    api: APIProtocol,
+    *,
+    redo: bool = False,
+    tm: int | None = None,
   ) -> tuple[DBImageType, bytes]:
     """Generate image from text prompt, store in DB.
 
@@ -650,6 +732,8 @@ class AIDatabase:
           seed, width, height, sampler_id, model_key)
       api: APIProtocol instance to use for making the API call
       redo: (default False) If True, forces re-generation of the image even if it exists in the DB
+      tm: (default: None) Optional timestamp to use for the generated image metadata;
+          if None, uses time we  get image back from API
 
     Returns:
       A tuple containing the DBImageType object and the raw image data.
@@ -659,7 +743,7 @@ class AIDatabase:
       Error: if the model hash in meta is not found in the DB models
 
     """
-    meta = self._QueryNormalize(meta)  # this will, for example, add the lora info to the meta
+    meta = self.QueryNormalize(meta)  # this will, for example, add the lora info to the meta
     # we have the model?
     if meta['model_hash'] not in self._db['models']:
       raise Error(f'Model with hash {meta["model_hash"]} not found in DB models')
@@ -682,7 +766,7 @@ class AIDatabase:
     # not found or redo requested, generate new
     img_bytes: bytes
     db_entry, img_bytes = api.Txt2Img(
-      self._db['models'][meta['model_hash']].copy(), meta, dir_root=self.output
+      self._db['models'][meta['model_hash']].copy(), meta, dir_root=self.output, tm=tm
     )
     hsh: str = db_entry['hash']
     path: str = next(iter(db_entry['paths']))  # get the first path from the entry paths
@@ -733,11 +817,12 @@ class AIDatabase:
       if err == 'upscaled':
         raise Error(f'Image upscaled; use original size: {old_entry}')
     # show lora/lycoris problems
-    for h, w in meta['lora'].items():
-      if h not in self._db['lora']:
-        logging.error(f'Image lora error: missing {h!r}')
-      if '@' in w or ',' in w:
-        logging.error(f'Image lora A1111-style weights: {w!r}')
+    if meta['lora']:
+      for h, w in meta['lora'].items():
+        if h not in self._db['lora']:
+          logging.error(f'Image lora error: missing {h!r}')
+        if '@' in w or ',' in w:
+          logging.error(f'Image lora A1111-style weights: {w!r}')
     # try to reproduce
     new_entry: DBImageType
     img_bytes: bytes
@@ -1151,7 +1236,7 @@ def _ImportImageFile(  # noqa: C901, PLR0912, PLR0914, PLR0915
       ),
     )
   # parse FreeU settings from metadata if present (format: "b1=1.05 b2=1.1 s1=0.55 s2=0.45")
-  freeu: tuple[int, int, int, int] | None = None
+  freeu: AIMetaFreeUType | None = None
   if freeu_str := (meta_raw.get('freeu', '') or '').strip():
     freeu_parts: dict[str, str] = {
       k.strip().lower(): v.strip()
@@ -1159,11 +1244,11 @@ def _ImportImageFile(  # noqa: C901, PLR0912, PLR0914, PLR0915
       if '=' in part
       for k, v in [part.split('=', 1)]
     }
-    freeu = (
-      _FloatKey(freeu_parts, 'b1', base.SD_DEFAULT_FREEU_B1, empty='1.0', conversion=100),
-      _FloatKey(freeu_parts, 'b2', base.SD_DEFAULT_FREEU_B2, empty='1.0', conversion=100),
-      _FloatKey(freeu_parts, 's1', base.SD_DEFAULT_FREEU_S1, empty='1.0', conversion=100),
-      _FloatKey(freeu_parts, 's2', base.SD_DEFAULT_FREEU_S2, empty='1.0', conversion=100),
+    freeu = AIMetaFreeUType(
+      b1=_FloatKey(freeu_parts, 'b1', base.SD_DEFAULT_FREEU_B1, empty='1.0', conversion=100),
+      b2=_FloatKey(freeu_parts, 'b2', base.SD_DEFAULT_FREEU_B2, empty='1.0', conversion=100),
+      s1=_FloatKey(freeu_parts, 's1', base.SD_DEFAULT_FREEU_S1, empty='1.0', conversion=100),
+      s2=_FloatKey(freeu_parts, 's2', base.SD_DEFAULT_FREEU_S2, empty='1.0', conversion=100),
     )
   # build the AIMetaType with the parsed and validated properties
   ai_meta: AIMetaType = AIMetaType(
@@ -1171,7 +1256,11 @@ def _ImportImageFile(  # noqa: C901, PLR0912, PLR0914, PLR0915
     model_hash=model_hash,
     positive=meta_raw.get('positive', ''),
     seed=_IntKey('seed', -1),
-    v_seed=(v_seed, v_strength) if v_seed > 0 and 0 < v_strength <= 100 else None,  # noqa: PLR2004
+    v_seed=(
+      AIMetaVariationSeedType(seed=v_seed, percent=v_strength)
+      if v_seed > 0 and 0 < v_strength <= 100  # noqa: PLR2004
+      else None
+    ),
     width=width,
     height=height,
     steps=_IntKey('steps', 0),
@@ -1312,6 +1401,7 @@ class APIProtocol(Protocol):
     meta: AIMetaType,
     *,
     dir_root: pathlib.Path | None = None,
+    tm: int | None = None,
   ) -> tuple[DBImageType, bytes]:
     """Generate image from text prompt using SDNext API.
 
@@ -1320,6 +1410,8 @@ class APIProtocol(Protocol):
       meta: AIMetaType object containing the generation metadata (e.g., prompt, steps,
           seed, width, height, sampler_id, model_key)
       dir_root: (default: None) Directory root to save the generated image, if None don't save
+      tm: (default: None) Optional timestamp to use for the generated image metadata;
+          if None, uses time we  get image back from API
 
     Returns:
       A tuple containing the DBImageType object and the raw image data.

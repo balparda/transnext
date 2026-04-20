@@ -12,7 +12,7 @@ build-backend = "poetry.core.masonry.api"
 [project]
 
 name = "transnext"
-version = "1.0.0"  # also update src/transnext/__init__.py
+version = "1.1.0"  # also update src/transnext/__init__.py
 
 description = "SDXL helper, searcher, maker, based on SDNext API"
 license = "Apache-2.0"
@@ -61,6 +61,7 @@ dependencies = [
 # if you change/add a line here also edit [tool.poetry.scripts] below and re-run `poetry sync`
 
 gen = "transnext.gen:Run"
+experiment = "transnext.experiment:Run"
 
 ####################################################################################################
 [tool.poetry.scripts]
@@ -69,6 +70,7 @@ gen = "transnext.gen:Run"
 # keep this in sync with [project.scripts] above
 
 gen = "transnext.gen:Run"
+experiment = "transnext.experiment:Run"
 
 ####################################################################################################
 [project.urls]

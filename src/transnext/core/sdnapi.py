@@ -586,6 +586,7 @@ class API(db.APIProtocol):
     meta: db.AIMetaType,
     *,
     dir_root: pathlib.Path | None = None,
+    tm: int | None = None,
   ) -> tuple[db.DBImageType, bytes]:
     """Generate image from text prompt using SDNext API.
 
@@ -889,6 +890,8 @@ class API(db.APIProtocol):
       meta: AIMetaType object containing the generation metadata (e.g., prompt, steps,
           seed, width, height, sampler_id, model_key)
       dir_root: (default: None) Directory root to save the generated image, if None don't save
+      tm: (default: None) Optional timestamp to use for the generated image metadata;
+          if None, uses time we  get image back from API
 
     Returns:
       A tuple containing the DBImageType object and the raw image data.
@@ -978,8 +981,8 @@ class API(db.APIProtocol):
       'negative_prompt': meta['negative'],
       'steps': meta['steps'],
       'seed': meta['seed'],
-      'subseed': base.SeedGen() if meta['v_seed'] is None else meta['v_seed'][0],
-      'subseed_strength': 0 if meta['v_seed'] is None else meta['v_seed'][1] / 100,  # divide by 100
+      'subseed': base.SeedGen() if meta['v_seed'] is None else meta['v_seed']['seed'],
+      'subseed_strength': 0 if meta['v_seed'] is None else meta['v_seed']['percent'] / 100,  # /100
       'width': meta['width'],
       'height': meta['height'],
       'sampler_name': meta['sampler'],
@@ -987,10 +990,10 @@ class API(db.APIProtocol):
       'cfg_end': meta['cfg_end'] / 10,  # remember to divide by 10
       'diffusers_guidance_rescale': meta['cfg_rescale'] / 100,  # remember to divide by 100
       'freeu_enabled': bool(meta['freeu']),
-      'freeu_b1': meta['freeu'][0] / 100 if meta['freeu'] else 1.0,  # remember to divide by 100
-      'freeu_b2': meta['freeu'][1] / 100 if meta['freeu'] else 1.0,  # remember to divide by 100
-      'freeu_s1': meta['freeu'][2] / 100 if meta['freeu'] else 1.0,  # remember to divide by 100
-      'freeu_s2': meta['freeu'][3] / 100 if meta['freeu'] else 1.0,  # remember to divide by 100
+      'freeu_b1': meta['freeu']['b1'] / 100 if meta['freeu'] else 1.0,  # remember to divide by 100
+      'freeu_b2': meta['freeu']['b2'] / 100 if meta['freeu'] else 1.0,  # remember to divide by 100
+      'freeu_s1': meta['freeu']['s1'] / 100 if meta['freeu'] else 1.0,  # remember to divide by 100
+      'freeu_s2': meta['freeu']['s2'] / 100 if meta['freeu'] else 1.0,  # remember to divide by 100
       # OPTIONS THAT ARE 1:1 WITH API OPTIONS (so we copy)
       'prompt_attention': base_options['prompt_attention'],
       'clip_skip_enabled': base_options['clip_skip_enabled'],
@@ -1004,7 +1007,7 @@ class API(db.APIProtocol):
     logging.info(f'Generating image with SDNext API, options: {options}')
     with timer.Timer(emit_log=False) as tmr_generate:
       data: tbase.JSONValue = self.Call(APICalls.TXT2IMG, options)
-    tm_created: int = timer.Now()  # use exact time we got is back
+    tm_created: int = tm if tm and tm > 0 else timer.Now()  # time is as soon as we get the response
     if not isinstance(data, dict) or 'info' not in data or 'parameters' not in data:
       raise Error(f'Invalid image metadata received from SDNext API: {data}')
     if (
@@ -1027,8 +1030,8 @@ class API(db.APIProtocol):
       out_dir: pathlib.Path = dir_root / date_str
       out_dir.mkdir(exist_ok=True)  # make sure the date dir exists, create it if not
       filename: str = (
-        f'{base.PromptHash(meta["positive"], meta["negative"])}-'
         f'{tm_str}-'
+        f'{base.PromptHash(meta["positive"], meta["negative"])}-'
         f'{model["hash"][:10]}-'
         f'{meta["cfg_scale"]}-{meta["steps"]}-'
         f'{meta["width"]}-{meta["height"]}-'

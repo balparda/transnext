@@ -7,6 +7,7 @@ from __future__ import annotations
 import dataclasses
 import enum
 import io
+import json
 import logging
 import os
 import pathlib
@@ -203,6 +204,7 @@ SD_MAX_ITERATIONS: int = 200
 SD_DEFAULT_WIDTH: int = 1024
 SD_DEFAULT_HEIGHT: int = 1024
 SD_DEFAULT_CFG_SCALE: int = 60  # default to 6.0 (multiply by 10 for CLI option)
+SD_MIN_CFG_SCALE: int = 10  # min 1.0 (multiply by 10 for CLI option)
 SD_MAX_CFG_SCALE: int = 300  # max 30.0 (multiply by 10 for CLI option)
 SD_DEFAULT_CFG_END: int = 8  # default to 0.8 (end at 80% of the steps; multiply by 10)
 SD_DEFAULT_CFG_RESCALE: int = 0  # default to 0.0 (no rescaling; multiply by 100)
@@ -399,10 +401,11 @@ SD_CFG_SCALE_OPTION: typer.models.OptionInfo = typer.Option(
   SD_DEFAULT_CFG_SCALE / 10,
   '-g',
   '--cfg',
-  min=1.0,
+  min=SD_MIN_CFG_SCALE / 10,
   max=SD_MAX_CFG_SCALE / 10,
   help=(
-    f'CFG scale value (guidance scale); 1.0 ≤ c ≤ {SD_MAX_CFG_SCALE / 10}; '
+    'CFG scale value (guidance scale); '
+    f'{SD_MIN_CFG_SCALE / 10} ≤ c ≤ {SD_MAX_CFG_SCALE / 10}; '
     f'default: {SD_DEFAULT_CFG_SCALE / 10}'
   ),
 )
@@ -693,3 +696,24 @@ def FindModelHash(tp: str, partial_hash: str, partial_name: str, models: dict[st
   if len(hash_matches) > 1 or len(name_matches) > 1:
     raise Error(f'ambiguous {tp} #{partial_hash}/{partial_name}: {hash_matches}/{name_matches}')
   raise Error(f'{tp} #{partial_hash}/{partial_name} not found')
+
+
+def CanonicalHash(data: tbase.JSONValue) -> str:
+  """Compute a canonical hash of a JSON-serializable dictionary.
+
+  Args:
+    data: A JSON-serializable dictionary to hash.
+
+  Returns:
+    String hash of the data, computed as the SHA256 hash of the canonical JSON serialization of data
+
+  """
+  return hashes.Hash256(
+    json.dumps(  # canonical JSON serialization
+      data,
+      sort_keys=True,
+      separators=(',', ':'),
+      ensure_ascii=False,
+      allow_nan=False,
+    ).encode('utf-8')
+  ).hex()

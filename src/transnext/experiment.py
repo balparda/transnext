@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: Copyright 2026 Daniel Balparda <balparda@github.com>
 # SPDX-License-Identifier: Apache-2.0
-"""CLI generate images."""
+"""CLI experiment."""
 
 from __future__ import annotations
 
@@ -20,8 +20,8 @@ from . import __version__
 
 
 @dataclass(kw_only=True, slots=True, frozen=True)
-class GenConfig(base.TransNextConfig):
-  """Gen CLI global context, storing the configuration."""
+class ExperimentConfig(base.TransNextConfig):
+  """Experiment CLI global context, storing the configuration."""
 
 
 # CLI app setup, this is an important object and can be imported elsewhere and called
@@ -29,22 +29,9 @@ app = typer.Typer(
   add_completion=True,
   no_args_is_help=True,
   help=(  # keep in sync with Main().help
-    'TransNext SDXL generator and DB maker.'
+    'TransNext SDXL experiment manager.'
   ),
-  epilog=(
-    'Example:\n\n\n\n'
-    '# --- Generating Images ---\n\n'
-    'poetry run gen -vv --out ~/foo/bar make "dark knight" -n batman '
-    '--cfg 7.5 -m SDXL_model_1234 -i 30 --sampler "Euler a"\n\n\n\n'
-    '# --- Reproducing an Image ---\n\n'
-    'poetry run gen reproduce abc123def456\n\n'
-    'poetry run gen reproduce ~/foo/bar/image.png\n\n\n\n'
-    '# --- Syncing the DB ---\n\n'
-    'poetry run gen sync\n\n'
-    'poetry run gen sync ~/foo/bar/new/dir\n\n\n\n'
-    '# --- Emitting CLI Markdown Docs ---\n\n'
-    'poetry run gen markdown > gen.md'
-  ),
+  epilog='',  # TODO
 )
 
 
@@ -56,7 +43,7 @@ def Run() -> None:
 @app.callback(
   invoke_without_command=True,
   help=(  # keep in sync with app.help
-    'TransNext SDXL generator and DB maker.'
+    'TransNext SDXL experiment manager.'
   ),
 )  # have only one; this is the "constructor"
 @clibase.CLIErrorGuard
@@ -97,7 +84,7 @@ def Main(  # documentation is help/epilog/args # noqa: D103
     soft_wrap=False,  # decide if you want soft wrapping of long lines
   )
   # create context with the arguments we received
-  ctx.obj = GenConfig(
+  ctx.obj = ExperimentConfig(
     console=console,
     verbose=verbose,
     color=color,
@@ -115,17 +102,15 @@ def Main(  # documentation is help/epilog/args # noqa: D103
 @app.command(
   'markdown',
   help='Emit Markdown docs for the CLI (see README.md section "Creating a New Version").',
-  epilog=('Example:\n\n\n\n$ poetry run gen markdown > gen.md\n\n<<saves CLI doc>>'),
+  epilog=('Example:\n\n\n\n$ poetry run experiment markdown > experiment.md\n\n<<saves CLI doc>>'),
 )
 @clibase.CLIErrorGuard
 def Markdown(*, ctx: click.Context) -> None:  # documentation is help/epilog/args # noqa: D103
-  config: GenConfig = ctx.obj
-  config.console.print(clibase.GenerateTyperHelpMarkdown(app, prog_name='gen'))
+  config: ExperimentConfig = ctx.obj
+  config.console.print(clibase.GenerateTyperHelpMarkdown(app, prog_name='experiment'))
 
 
 # Import CLI modules to register their commands with the app
 from transnext.cli import (  # noqa: E402
-  make,  # pyright: ignore[reportUnusedImport] # noqa: F401
-  reproduce,  # pyright: ignore[reportUnusedImport] # noqa: F401
-  sync,  # pyright: ignore[reportUnusedImport] # noqa: F401
+  cliexperiment,  # pyright: ignore[reportUnusedImport] # noqa: F401
 )

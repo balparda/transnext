@@ -9,26 +9,22 @@ import pathlib
 import click
 from transcrypto.cli import clibase
 
-from transnext import gen
-from transnext.core import base, db, sdnapi
+from transnext import experiment
+from transnext.core import base, db, newton, sdnapi
 
 # ===>>>> TO DEBUG calls: set True and run the CLI command
 _DEBUG_RECORD: bool = False  # keep False!
 # the result will be saved here:
-_DEBUG_RECORD_SAVE_PATH: pathlib.Path = pathlib.Path('call_record.json')  # project root! careful!
+_DEBUG_RECORD_SAVE_PATH: pathlib.Path = pathlib.Path('experiment_record.json')  # root! careful!
 
 
-@gen.app.command(
-  'make',
-  help='Query the model.',
-  epilog=(
-    'Example:\n\n\n\n'
-    'poetry run gen -vv --out ~/foo/bar make "dark knight" -n batman '
-    '--cfg 7.5 -m SDXL_model_1234 -i 30 --sampler "Euler a"'
-  ),
+@experiment.app.command(
+  'new',
+  help='New experiment.',
+  epilog='',  # TODO
 )
 @clibase.CLIErrorGuard
-def Make(  # documentation is help/epilog/args # noqa: D103
+def New(  # documentation is help/epilog/args # noqa: D103
   *,
   ctx: click.Context,
   positive_prompt: str = base.SD_POSITIVE_PROMPT_OPTION,  # type: ignore[assignment]
@@ -59,7 +55,7 @@ def Make(  # documentation is help/epilog/args # noqa: D103
   redo: bool = base.SD_REDO_OPTION,  # type: ignore[assignment]
 ) -> None:
   # check sanity
-  config: gen.GenConfig = ctx.obj
+  config: experiment.ExperimentConfig = ctx.obj
   if not config.db and not config.output:
     raise click.UsageError('With `--no-db` you must specify `--out`')
   if sampler.value in {s.value for s in base.SamplerA1111}:
@@ -74,8 +70,8 @@ def Make(  # documentation is help/epilog/args # noqa: D103
     # set output, if specified
     if config.output is not None:
       ai_db.output = config.output
-    # run the generation and store the result in the DB
-    ai_db.Txt2Img(
+    exps = newton.Experiments(ai_db)
+    exp: newton.Experiment = exps.New(
       db.AIMetaTypeFactory(
         {
           'positive': positive_prompt,
@@ -114,11 +110,20 @@ def Make(  # documentation is help/epilog/args # noqa: D103
           ),
         }
       ),
-      api,
-      redo=redo,
+      [
+        newton.AxisType(key=newton.AxisField.Positive.value, values=['young', 'old']),
+        newton.AxisType(
+          key=newton.AxisField.Model.value,
+          values=[ai_db.GetModelHash(m, api=api) for m in ['omega', 'wonderland']],
+        ),
+        newton.AxisType(key=newton.AxisField.CFG.value, values=[60, 80]),
+      ],
+      [666, 999],
     )
+    exp.Run(api, redo=redo)
   # DB is closed and saved
   config.console.print()
+  raise Exception('')  # TODO: temporary: remove
   # debug only!
   if _DEBUG_RECORD:
     # this is debug only, we don't want tests here!
