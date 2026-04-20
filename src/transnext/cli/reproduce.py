@@ -45,7 +45,7 @@ def Reproduce(  # documentation is help/epilog/args # noqa: D103
     raise click.UsageError('Cannot reproduce without DB access (do not use `--no-db`)')
   # open API and DB
   api = sdnapi.API(base.MakeURL(config.host, config.port), server_save_images=backup)
-  with db.AIDatabase(config.appconfig, api=api) as ai_db:
+  with db.AIDatabase(config.appconfig, sidecar=config.sidecar, api=api) as ai_db:
     # set output, if specified
     if config.output is not None:
       ai_db.output = config.output

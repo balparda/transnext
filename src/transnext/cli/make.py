@@ -70,7 +70,9 @@ def Make(  # documentation is help/epilog/args # noqa: D103
   api = sdnapi.API(
     base.MakeURL(config.host, config.port), server_save_images=backup, record=_DEBUG_RECORD
   )
-  with db.AIDatabase(config.appconfig, read_only=not config.db, api=api) as ai_db:
+  with db.AIDatabase(
+    config.appconfig, read_only=not config.db, sidecar=config.sidecar, api=api
+  ) as ai_db:
     # set output, if specified
     if config.output is not None:
       ai_db.output = config.output

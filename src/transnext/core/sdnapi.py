@@ -493,6 +493,7 @@ class API(db.APIProtocol):
         model_type=db.ModelType(cast('str', model.get('type', '') or '').strip()).value,
         function=db.ModelFunction.Model.value,
         metadata=copy.deepcopy(model.copy()),
+        sidecar=None,  # this, if present, will be filled in by the DB
         description=None,
         autov3=None,  # models don't have autov3 hashes, only lora/lyco
       )
@@ -561,6 +562,7 @@ class API(db.APIProtocol):
           if isinstance(lora.get('metadata'), dict)
           else {}
         ),
+        sidecar=None,  # lora/lyco don't have sidecar info, only models do
         description=None,
         autov3=None,  # computed later
       )

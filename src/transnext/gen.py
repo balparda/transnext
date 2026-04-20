@@ -84,6 +84,7 @@ def Main(  # documentation is help/epilog/args # noqa: D103
   host: str = base.SD_HOST_OPTION,  # type: ignore[assignment]
   port: int = base.SD_PORT_OPTION,  # type: ignore[assignment]
   db: bool = base.SD_DB_USE_OPTION,  # type: ignore[assignment]
+  sidecar: bool = base.SD_DB_SIDECAR_SAVE,  # type: ignore[assignment]
   output: pathlib.Path | None = base.SD_IMAGES_OUTPUT_OPTION,  # type: ignore[assignment]
 ) -> None:
   if version:
@@ -105,6 +106,7 @@ def Main(  # documentation is help/epilog/args # noqa: D103
     host=host,
     port=port,
     db=db,
+    sidecar=sidecar,
     output=output,
   )
   # even though this is a convenient place to print(), beware that this runs even when

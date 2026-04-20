@@ -265,6 +265,15 @@ SD_FORCE_API: typer.models.OptionInfo = typer.Option(
   ),
 )
 
+SD_DB_SIDECAR_SAVE: typer.models.OptionInfo = typer.Option(
+  True,
+  '--sidecar/--no-sidecar',
+  help=(
+    'If True, SDNext API will save/load a sidecar JSON file with the model files (same directory); '
+    'default: True'
+  ),
+)
+
 # DB options
 
 SD_DB_USE_OPTION: typer.models.OptionInfo = typer.Option(
@@ -514,6 +523,7 @@ class TransNextConfig(clibase.CLIConfig):
   host: str
   port: int
   db: bool
+  sidecar: bool
   output: pathlib.Path | None
 
 

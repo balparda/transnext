@@ -7,6 +7,7 @@ from __future__ import annotations
 import abc as abstract
 import copy
 import enum
+import json
 import logging
 import pathlib
 import re
@@ -28,6 +29,7 @@ _DB_COMPRESS_LEVEL = 5  # default compression level for DB saving
 _DB_DISK_LOCK: threading.Lock = threading.Lock()  # lock for thread-safe DB operations
 
 _EXTENSIONS_TO_PARSE_LOWER: set[str] = {'.png', '.jpg', '.jpeg', '.gif'}
+_SIDECAR_SUFFIX: str = '.transnext.json'  # suffix for model sidecar files
 
 
 class Error(base.Error):
@@ -151,7 +153,36 @@ class AIModelType(TypedDict):
   model_type: str  # ModelType file type (e.g., 'safetensors', 'ckpt')
   function: str  # ModelFunction (e.g., 'Model', 'Lora', 'Lycoris')
   metadata: tbase.JSONDict  # additional metadata from SDNext API response
+  sidecar: AIModelSidecarType | None  # sidecar info; only for models, not for lora/lycoris
   description: str | None  # brief description of the model's capabilities
+
+
+class AIModelSidecarType(TypedDict):
+  """AI model sidecar metadata type."""
+
+  is_vae: bool  # is this a VAE model?
+  is_pony: bool  # is this a Pony model?
+  is_clip2: bool  # is this a CLIP2 model?
+  hash: str  # hash of the model file, must be the same as the main hash
+  overrides: tbase.JSONDict  # additional model default overrides
+
+
+def AIModelSidecarTypeFactory(overrides: dict[str, object] | None = None) -> AIModelSidecarType:
+  """Create new AIModelSidecarType object with default values.
+
+  Returns:
+    A new AIModelSidecarType object with default values.
+
+  """
+  obj: AIModelSidecarType = {
+    'is_vae': True,
+    'is_pony': False,
+    'is_clip2': False,
+    'hash': '',
+    'overrides': {},
+  }
+  obj.update(overrides or {})  # type: ignore[typeddict-item]
+  return obj
 
 
 class AIMetaType(TypedDict):
@@ -306,6 +337,7 @@ class AIDatabase:
     config: app_config.AppConfig,
     *,
     read_only: bool = False,
+    sidecar: bool = True,
     aes_key: aes.AESKey | None = None,
     safe_save: bool = True,
     compress_save: bool = False,
@@ -316,6 +348,7 @@ class AIDatabase:
     Args:
       config: The application configuration object.
       read_only: (default False) Whether to open the database in read-only mode.
+      sidecar: (default True) Whether to use a sidecar JSON file for models
       aes_key: (default None) Optional AES key for encrypting/decrypting the database file
       safe_save: (default True) Whether to use a safe save method that reads the existing DB file
           before writing, to prevent data loss from clobbering; if False, it will overwrite
@@ -331,11 +364,12 @@ class AIDatabase:
     self._safe_save: bool = safe_save
     self._compress_save: bool = compress_save
     self._db: _DBType
+    self._sidecar: bool = sidecar
     self._open = timer.Timer('AIDatabase', emit_log=False)
     with _DB_DISK_LOCK:  # ensure thread-safe load operations
       if self._config.path.exists():
         self._db = cast(
-          '_DBType', config.DeSerialize(decryption_key=self._key, unpickler=key.UnpickleJSON)
+          '_DBType', self._config.DeSerialize(decryption_key=self._key, unpickler=key.UnpickleJSON)
         )
         logging.info(f'Loaded DB from {self._config.path}: {self.label}')
       else:
@@ -582,18 +616,53 @@ class AIDatabase:
 
     """
     models: list[AIModelType] = api.GetModels()
-    # add missing hashes
-    all_paths: set[str] = {model['path'] for model in self._db['models'].values() if model['path']}
+    # add missing hashes; first compute all known paths (no need to re-hash)
+    all_paths: dict[str, str] = {
+      model['path']: model['hash'] for model in self._db['models'].values() if model['path']
+    }
     for model in models:
-      if model['path'] in all_paths:
-        continue  # skip duplicates by path (we know we have this one), we only want unique models
-      if not model['hash'].strip():
-        logging.warning(f'Model with empty hash received from API, hashing {model["path"]}')
-        model['hash'] = hashes.Hash256(pathlib.Path(model['path']).read_bytes()).hex()
-      logging.info(f'Adding model: {model["name"]} -> {model["hash"]}')
-      if model['hash'] in self._db['models']:
-        raise Error(f'Model {model} already exists in DB {self._db["models"][model["hash"]]}')
-      self._db['models'][model['hash']] = model  # add to DB models
+      # check the model is there
+      path: pathlib.Path = pathlib.Path(model['path'])
+      s_path: pathlib.Path = path.with_suffix(_SIDECAR_SUFFIX)
+      if not path.exists():
+        raise Error(f'Model path does not exist: {model["path"]}')
+      # find sidecar, if any: if enabled we always load it to the data
+      if self._sidecar and s_path.exists():
+        model['sidecar'] = cast(
+          'AIModelSidecarType', json.loads(s_path.read_text(encoding='utf-8'))
+        )
+      try:
+        # check if we already have this path, if so we skip it
+        if model['path'] in all_paths:
+          # check we are talking about the same file (hash) before skipping
+          if ((hsh := all_paths[model['path']]) != model['hash'] and model['hash']) or (
+            model['sidecar'] and model['sidecar']['hash'] != hsh
+          ):
+            raise Error(f'Hash mismatch: {hsh!r} vs {model["hash"]!r} or SIDECAR')
+          continue  # skip duplicates by path (we know we have this one), we only want unique models
+        # if we don't have the hash, we need to compute it (costly, so we do it only for new paths)
+        if not model['hash']:
+          if model['sidecar'] and model['sidecar']['hash']:
+            logging.info(f'Got model hash from sidecar: {model["sidecar"]["hash"]!r}')
+            model['hash'] = model['sidecar']['hash']  # if sidecar has the hash, we can use it
+          else:
+            logging.warning(f'Model with empty hash received from API, hashing {model["path"]}')
+            model['hash'] = hashes.Hash256(pathlib.Path(model['path']).read_bytes()).hex()
+        # final check, add to DB
+        if model['hash'] in self._db['models']:
+          raise Error(f'Model {model} already exists in DB {self._db["models"][model["hash"]]}')
+        logging.info(f'Adding model: {model["name"]} -> {model["hash"]}')
+        self._db['models'][model['hash']] = model  # add to DB models
+      finally:
+        # finally block to ensure we do this even on continue...
+        # if no sidecar but we do have a hash, add a default one, include the hash
+        if model['hash'] and self._sidecar and not s_path.exists():
+          s_path.write_text(
+            json.dumps(  # indent, thus readable
+              AIModelSidecarTypeFactory({'hash': model['hash']}), separators=(',', ':'), indent=2
+            ),
+            encoding='utf-8',
+          )
     # done, log
     logging.info(f'Refreshed DB models; total models in DB: {len(self._db["models"])}')
 
@@ -613,7 +682,7 @@ class AIDatabase:
     for lora in loras:
       if lora['path'] in all_paths:
         continue  # skip duplicates by path (we know we have this one), we only want unique models
-      if not lora['hash'].strip():
+      if not lora['hash']:
         logging.warning(f'Model with empty hash received from API, hashing {lora["path"]}')
         lora['hash'] = hashes.Hash256(pathlib.Path(lora['path']).read_bytes()).hex()
       try:
@@ -1107,6 +1176,7 @@ def _ImportImageFile(  # noqa: C901, PLR0912, PLR0914, PLR0915
       },
     )
   # parse metadata
+  # TODO: look at "Emphasis: No norm" in info_text
   meta_raw: dict[str, str] = ParseImageMetadata(info_text)
   parse_errors: dict[str, None] = {}
   # resolve model hash
