@@ -71,7 +71,7 @@ def New(  # documentation is help/epilog/args # noqa: D103
     if config.output is not None:
       ai_db.output = config.output
     exps = newton.Experiments(ai_db)
-    exp: newton.Experiment = exps.New(
+    exp: newton.Experiment = exps.Make(
       db.AIMetaTypeFactory(
         {
           'positive': positive_prompt,

@@ -24,7 +24,7 @@ class Error(base.Error):
 type ExperimentKeyType = list[str | int]  # experiment instance [ax1_value, ax2_value, ...]
 type AxisKindType = str | int  # axis value type
 type ExperimentKeysType = dict[str, str | None]  # hash is the key b/c JSON can't have tuple keys
-type ResultsType = dict[int, ExperimentKeysType]
+type ResultsType = dict[str, ExperimentKeysType]  # {str(seed): ExperimentKeysType}
 type AxisMapType = dict[AxisField, tuple[type[AxisKindType], AxisFnType, AxisFnType]]
 
 
@@ -57,7 +57,7 @@ class ExperimentType(TypedDict):
   hash: str  # experiment hash, based on config and axes
   config: db.AIMetaType  # base config to vary along axes
   axes: list[AxisType]  # experiment axes to vary along
-  results: ResultsType  # {seed: {experiment_key: result_hash}}
+  results: ResultsType  # {str(seed): {experiment_key: result_hash}} (str key b/c JSON limitation)
 
 
 class AxisType(TypedDict):
@@ -187,11 +187,15 @@ class Experiments:
     self._objects: dict[str, Experiment] = {}  # in-memory objects for experiments, keyed by hash
     for exp in self._experiments.values():
       self._objects[exp['hash']] = Experiment(  # exp is MUTABLE!
-        ai_db, exp['config'], exp['axes'], list(exp['results']), loaded=exp
+        ai_db,
+        exp['config'],
+        exp['axes'],
+        [int(s) for s in exp['results']],  # JSON round-trip turns int keys → str; convert back
+        loaded=exp,
       )
 
-  def New(self, config: db.AIMetaType, axes: list[AxisType], seeds: list[int]) -> Experiment:
-    """Create a new experiment with the given configuration, axes, and seeds.
+  def Make(self, config: db.AIMetaType, axes: list[AxisType], seeds: list[int]) -> Experiment:
+    """Create a new experiment with the given configuration, axes, and seeds (or load existing).
 
     Args:
       config: AIMetaType object containing the base generation metadata (e.g., prompt, steps
@@ -202,25 +206,22 @@ class Experiments:
     Returns:
       The created Experiment object.
 
-    Raises:
-      Error: if an experiment with the same hash already exists
-
     """
     config = self._ai_db.QueryNormalize(config)  # normalize the config to ensure consistent hashing
     config['seed'] = -1  # seed is fixed to -1 to ensure consistent hashing
     exp = Experiment(self._ai_db, config, axes, seeds)
     if exp.experiment_hash in self._experiments:
-      raise Error(f'Experiment with hash {exp.experiment_hash!r} already exists')
+      logging.error(f'Experiment with hash {exp.experiment_hash!r} already exists')
+      return self._objects[exp.experiment_hash]  # return existing object
     self._experiments[exp.experiment_hash] = exp.experiment  # add to DB-tied dict
     self._objects[exp.experiment_hash] = exp  # add to in-memory objects
-    self._ai_db.Save()  # save to DB immediately
     return exp
 
 
 class Experiment:
   """Experiment class to manage experiment configurations and results."""
 
-  def __init__(  # noqa: C901
+  def __init__(  # noqa: C901, PLR0912
     self,
     ai_db: db.AIDatabase,
     config: db.AIMetaType,
@@ -248,6 +249,8 @@ class Experiment:
     self._config: db.AIMetaType = copy.deepcopy(config)
     self._axes: list[AxisType] = copy.deepcopy(axes)
     self._seeds: list[int] = sorted(set(seeds))  # unique and sorted seeds for consistent order
+    if any(s for s in self._seeds if not (1 <= s <= base.SD_MAX_SEED)):
+      raise Error(f'Invalid seed in seeds {self._seeds}, must be in [1, {base.SD_MAX_SEED}]')
     # make internal axis map and replace the REPLACE_ME with actual validation functions
     self._axis_map: AxisMapType = copy.deepcopy(_AXIS_MAP)
     self._ValidateModel: abc.Callable[[str], str] = lambda h: self._ai_db.GetModel(h)['hash']
@@ -308,7 +311,7 @@ class Experiment:
         raise Error(f'Loaded experiment config {loaded["config"]!r} mismatch {self._config!r}')
       if loaded['axes'] != self._axes:
         raise Error(f'Loaded experiment axes {loaded["axes"]!r} mismatch {self._axes!r}')
-      if set(loaded['results']) != set(self._seeds):
+      if {int(s) for s in loaded['results']} != set(self._seeds):
         raise Error(f'Loaded experiment seeds {set(loaded["results"])} mismatch {set(self._seeds)}')
       if loaded['hash'] != eh:
         raise Error(f'Loaded experiment hash {loaded["hash"]!r} does not match expected {eh!r}')
@@ -318,7 +321,7 @@ class Experiment:
     else:
       # create empty results
       self._results = {
-        _AXIS_MAP[AxisField.Seed][1](seed): dict.fromkeys(self._k_dict) for seed in self._seeds
+        str(_AXIS_MAP[AxisField.Seed][1](seed)): dict.fromkeys(self._k_dict) for seed in self._seeds
       }
       # create main object, some logging and we're done
       self.experiment = ExperimentType(
@@ -371,9 +374,9 @@ class Experiment:
           # find the value for this axis in the key tuple and apply it to the meta
           meta[field.value] = tp(key[n])  # pyright: ignore[reportGeneralTypeIssues]
         # go over the seeds and generate the image for this combination
-        for seed in sorted(self._results):  # sort seeds for consistent order
+        for seed in self._seeds:  # seeds is sorted already
           # check for pre-existing result
-          if (res := self._results[seed][kh]) is not None and (
+          if (res := self._results[str(seed)][kh]) is not None and (
             img := self._ai_db.Image(res)
           ) is not None:
             existing_paths: list[str] = sorted(p for p in img['paths'] if pathlib.Path(p).exists())
@@ -387,7 +390,7 @@ class Experiment:
           meta['seed'] = seed
           logging.info(f'Generating {seed}/{key}...')
           image: db.DBImageType = self._ai_db.Txt2Img(meta, api, redo=redo, tm=tm_created)[0]
-          self._results[seed][kh] = image['hash']  # store the result hash in experiment results
+          self._results[str(seed)][kh] = image['hash']  # store the result hash in results
           n_done += 1
           logging.info(f'Progress: {n_done + n_skip}/{total} combinations completed, skip {n_skip}')
         # save after each combination, so we have partial results
