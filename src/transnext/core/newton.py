@@ -297,9 +297,11 @@ class Experiment:
     self._keys: list[tuple[int | str, ...]] = sorted(
       # sort keys for consistent order; if there's a model axis, sort by that
       # first since it's usually the most important one to group by, otherwise
-      # just sort by the whole key and rely on pythons tuple ordering
+      # just sort by the whole key and rely on pythons tuple ordering;
+      # NOTE: always use full tuple (k) as tiebreaker to avoid non-determinism from
+      # set iteration order (Python hash randomization), which would make ties break randomly
       keys,
-      key=lambda k: k[model_index] if model_index is not None else k,
+      key=lambda k: (k[model_index], k) if model_index is not None else k,
     )
     self._k_dict: dict[str, ExperimentKeyType] = {KeyHash(list(k)): list(k) for k in self._keys}
     self.experiment: ExperimentType
