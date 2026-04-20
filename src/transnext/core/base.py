@@ -521,9 +521,9 @@ SD_EXPERIMENT_SEEDS_OPTION: typer.models.OptionInfo = typer.Option(
   '-1',
   '--seeds',
   help=(
-    'Comma-separated list of seed values for the experiment runs; '
+    'Pipe-separated list of seed values for the experiment runs; '
     f'each seed must be 1 ≤ s ≤ {SD_MAX_SEED} or 0/-1 for a random seed; '
-    'example: --seeds "666,-1,999"; default: "-1" (no proper seed axis, only one random seed)'
+    'example: --seeds "666|-1|999"; default: "-1" (no proper seed axis, only one random seed)'
   ),
 )
 SD_EXPERIMENT_AXIS_OPTION: typer.models.OptionInfo = typer.Option(
@@ -531,11 +531,11 @@ SD_EXPERIMENT_AXIS_OPTION: typer.models.OptionInfo = typer.Option(
   '--axis',
   help=(
     'Experiment axis definition (repeatable, order is preserved); '
-    'format: "KEY:VALUE1,VALUE2,..."; '
+    'format: "KEY:VALUE1|VALUE2|..."; '
     'valid keys: cfg_scale (float values), sampler (names), '
     'model_hash (key prefixes), positive (prompt replacements), '
     'negative (prompt replacements); '
-    'example: --axis "sampler:Euler,DPM++ SDE" --axis "cfg_scale:6.0,7.5"'
+    'example: --axis "sampler:Euler|DPM++ SDE" --axis "cfg_scale:6.0|7.5"'
   ),
 )
 
@@ -628,10 +628,10 @@ def GetFileCreation(path: pathlib.Path) -> int:
 
 
 def ParseIntList(raw: str, *, name: str, min_val: int, max_val: int) -> list[int]:
-  """Parse a comma-separated string of integers into a validated list.
+  """Parse a pipe-separated string of integers into a validated list.
 
   Args:
-    raw: The raw comma-separated string (e.g., "666,999,1234").
+    raw: The raw pipe-separated string (e.g., "666|-1|1234").
     name: Human-readable name of the parameter, for error messages.
     min_val: Minimum allowed value (inclusive).
     max_val: Maximum allowed value (inclusive).
@@ -643,7 +643,7 @@ def ParseIntList(raw: str, *, name: str, min_val: int, max_val: int) -> list[int
     Error: If any value is not a valid integer or is out of range, or if the list is empty.
 
   """
-  parts: list[str] = [p.strip() for p in raw.split(',') if p.strip()]
+  parts: list[str] = [p.strip() for p in raw.split('|') if p.strip()]
   if not parts:
     raise Error(f'{name}: empty list')
   result: list[int] = []
@@ -669,12 +669,12 @@ def ParseFloatListAsScaledInt(
   min_val: float,
   max_val: float,
 ) -> list[int]:
-  """Parse a comma-separated string of floats into a validated list of scaled integers.
+  """Parse a pipe-separated string of floats into a validated list of scaled integers.
 
-  For example, CFG values "6.0,7.5" with scale=10 become [60, 75].
+  For example, CFG values "6.0|7.5" with scale=10 become [60, 75].
 
   Args:
-    raw: The raw comma-separated string (e.g., "6.0,7.5").
+    raw: The raw pipe-separated string (e.g., "6.0|7.5").
     name: Human-readable name of the parameter, for error messages.
     scale: Multiplier to convert float → int (e.g., 10 for CFG, 100 for rescale).
     min_val: Minimum allowed float value (inclusive).
@@ -687,7 +687,7 @@ def ParseFloatListAsScaledInt(
     Error: If any value is not a valid float or is out of range, or if the list is empty.
 
   """
-  parts: list[str] = [p.strip() for p in raw.split(',') if p.strip()]
+  parts: list[str] = [p.strip() for p in raw.split('|') if p.strip()]
   if not parts:
     raise Error(f'{name}: empty list')
   result: list[int] = []
@@ -707,10 +707,10 @@ def ParseFloatListAsScaledInt(
 
 
 def ParseStrList(raw: str, *, name: str) -> list[str]:
-  """Parse a comma-separated string of values into a validated list.
+  """Parse a pipe-separated string of values into a validated list.
 
   Args:
-    raw: The raw comma-separated string (e.g., "Euler,DPM++ SDE").
+    raw: The raw pipe-separated string (e.g., "Euler|DPM++ SDE").
     name: Human-readable name of the parameter, for error messages.
 
   Returns:
@@ -720,7 +720,7 @@ def ParseStrList(raw: str, *, name: str) -> list[str]:
     Error: If the list is empty after stripping.
 
   """
-  parts: list[str] = [p.strip() for p in raw.split(',') if p.strip()]
+  parts: list[str] = [p.strip() for p in raw.split('|') if p.strip()]
   if not parts:
     raise Error(f'{name}: empty list')
   result: list[str] = []
@@ -754,13 +754,13 @@ _AXIS_FLOAT_RANGE: dict[str, tuple[float, float]] = {
 
 
 def ParseAxisDefinition(raw: str) -> tuple[str, list[str] | list[int]]:
-  """Parse a single axis definition string in "KEY:VAL1,VAL2,..." format.
+  """Parse a single axis definition string in "KEY:VAL1|VAL2|..." format.
 
   The key is validated against `AXIS_KEYS`. For `cfg_scale`, values are parsed as floats
   and converted to scaled ints (x10). For all other keys, values are kept as strings.
 
   Args:
-    raw: Raw axis definition string (e.g., "sampler:Euler,DPM++ SDE" or "cfg_scale:6.0,7.5").
+    raw: Raw axis definition string (e.g., "sampler:Euler|DPM++ SDE" or "cfg_scale:6.0|7.5").
 
   Returns:
     A tuple of (axis_key, values) where axis_key is the internal AxisField value string
@@ -772,7 +772,7 @@ def ParseAxisDefinition(raw: str) -> tuple[str, list[str] | list[int]]:
   """
   if ':' not in raw:
     raise Error(
-      f'--axis: invalid format {raw!r}; expected "KEY:VAL1,VAL2,..."; '
+      f'--axis: invalid format {raw!r}; expected "KEY:VAL1|VAL2|..."; '
       f'valid keys: {", ".join(sorted(AXIS_KEYS))}'
     )
   key_str, values_str = raw.split(':', 1)

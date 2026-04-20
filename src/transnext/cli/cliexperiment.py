@@ -22,7 +22,7 @@ _DEBUG_RECORD_SAVE_PATH: pathlib.Path = pathlib.Path('experiment_record.json')  
 def _BuildAxes(raw_axes: list[str]) -> list[newton.AxisType]:
   """Build experiment axes from repeatable --axis CLI option strings.
 
-  Each raw string has the format "KEY:VAL1,VAL2,...". The order of the list
+  Each raw string has the format "KEY:VAL1|VAL2|...". The order of the list
   determines the order of the experiment axes. Duplicate keys are rejected.
 
   Args:
@@ -64,11 +64,11 @@ def _BuildAxes(raw_axes: list[str]) -> list[newton.AxisType]:
   ),
   epilog=(
     'Examples:\n\n\n\n'
-    '$ poetry run experiment new "a photo of a cat" --seeds "666,-1,999" '
-    '--axis "sampler:Euler,DPM++ SDE"\n\n'
+    '$ poetry run experiment new "a photo of a cat" --seeds "666|-1|999" '
+    '--axis "sampler:Euler|DPM++ SDE"\n\n'
     '<<runs 2x2 grid: 2 samplers x 2 seeds>>\n\n\n\n'
     '$ poetry run experiment new "a photo of a % animal" --seeds "42" '
-    '--axis "positive:black cat,white dog" --axis "cfg_scale:6.0,9.0"\n\n'
+    '--axis "positive:black cat|white dog" --axis "cfg_scale:6.0|9.0"\n\n'
     '<<runs 2x2x1 grid: 2 prompts x 2 CFGs x 1 seed>>'
   ),
 )
