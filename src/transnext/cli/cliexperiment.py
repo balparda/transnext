@@ -66,7 +66,9 @@ def New(  # documentation is help/epilog/args # noqa: D103
   api = sdnapi.API(
     base.MakeURL(config.host, config.port), server_save_images=backup, record=_DEBUG_RECORD
   )
-  with db.AIDatabase(config.appconfig, read_only=not config.db, api=api) as ai_db:
+  with db.AIDatabase(
+    config.appconfig, read_only=not config.db, sidecar=config.sidecar, api=api
+  ) as ai_db:
     # set output, if specified
     if config.output is not None:
       ai_db.output = config.output
@@ -110,20 +112,16 @@ def New(  # documentation is help/epilog/args # noqa: D103
           ),
         }
       ),
-      [
-        newton.AxisType(key=newton.AxisField.Positive.value, values=['young', 'old']),
-        newton.AxisType(
-          key=newton.AxisField.Model.value,
-          values=[ai_db.GetModelHash(m, api=api) for m in ['omega', 'wonderland']],
-        ),
-        newton.AxisType(key=newton.AxisField.CFG.value, values=[60, 80]),
+      [  # TODO: get this from CLI UI
+        newton.AxisType(key='steps', values=[20, 40]),
+        newton.AxisType(key='sampler', values=['Euler', 'Euler a']),
       ],
-      [666, 999],
+      [666, 999],  # TODO: get this from CLI UI
     )
-    exp.Run(api, redo=redo)
+    for _ in exp.Run(api, redo=redo):
+      pass
   # DB is closed and saved
   config.console.print()
-  raise Exception('')  # TODO: temporary: remove
   # debug only!
   if _DEBUG_RECORD:
     # this is debug only, we don't want tests here!
