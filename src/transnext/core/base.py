@@ -539,6 +539,22 @@ SD_EXPERIMENT_AXIS_OPTION: typer.models.OptionInfo = typer.Option(
   ),
 )
 
+SD_EXPERIMENT_RESPECT_VAE_OPTION: typer.models.OptionInfo = typer.Option(
+  True,
+  '--respect-vae/--no-respect-vae',
+  help='If True, accept override of VAE option by model; default: True',
+)
+SD_EXPERIMENT_RESPECT_PONY_OPTION: typer.models.OptionInfo = typer.Option(
+  True,
+  '--respect-pony/--no-respect-pony',
+  help='If True, accept override of Pony option by model; default: True',
+)
+SD_EXPERIMENT_RESPECT_CLIP2_OPTION: typer.models.OptionInfo = typer.Option(
+  True,
+  '--respect-clip2/--no-respect-clip2',
+  help='If True, accept override of CLIP2 option by model; default: True',
+)
+
 
 @dataclasses.dataclass(kw_only=True, slots=True, frozen=True)
 class TransNextConfig(clibase.CLIConfig):

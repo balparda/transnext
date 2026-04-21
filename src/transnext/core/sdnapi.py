@@ -977,6 +977,9 @@ class API(db.APIProtocol):
       'tome_ratio': 0,  # unnecessary optimization
       'todo_ratio': 0,  # unnecessary optimization
       # VARIABLE OPTIONS
+      # TODO: respect vae
+      # TODO: respect pony
+      # TODO: respect clip2
       'save_images': self._server_save_images,
       'sd_model_checkpoint': model['name'],
       'prompt': meta['positive'],  # TODO: "[foo:bar:0.1]" this pattern is failing

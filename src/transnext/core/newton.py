@@ -65,7 +65,16 @@ class ExperimentType(TypedDict):
   hash: str  # experiment hash, based on config and axes
   config: db.AIMetaType  # base config to vary along axes
   axes: list[AxisType]  # experiment axes to vary along
+  options: ExperimentOptionsType  # options for the experiment that affect how axes behave
   results: ResultsType  # {str(seed): {experiment_key: result_hash}} (str key b/c JSON limitation)
+
+
+class ExperimentOptionsType(TypedDict):
+  """Experiment options type."""
+
+  respect_vae: bool  # accept override of VAE option?
+  respect_pony: bool  # accept override of Pony option?
+  respect_clip2: bool  # accept override of CLIP2 option?
 
 
 class AxisType(TypedDict):
@@ -199,10 +208,17 @@ class Experiments:
         exp['config'],
         exp['axes'],
         [int(s) for s in exp['results']],  # JSON round-trip turns int keys → str; convert back
+        exp['options'],
         loaded=exp,
       )
 
-  def Make(self, config: db.AIMetaType, axes: list[AxisType], seeds: list[int]) -> Experiment:
+  def Make(
+    self,
+    config: db.AIMetaType,
+    axes: list[AxisType],
+    seeds: list[int],
+    options: ExperimentOptionsType,
+  ) -> Experiment:
     """Create a new experiment with the given configuration, axes, and seeds (or load existing).
 
     Args:
@@ -210,6 +226,7 @@ class Experiments:
           seed, width, height, sampler_id, model_key) to be varied along the axes.
       axes: List of AxisType objects defining the experiment axes to vary along and their values.
       seeds: List of seed values to run the experiment with.
+      options: ExperimentOptionsType object containing options for the experiment
 
     Returns:
       The created Experiment object.
@@ -217,7 +234,7 @@ class Experiments:
     """
     config = self._ai_db.QueryNormalize(config)  # normalize the config to ensure consistent hashing
     config['seed'] = -1  # seed is fixed to -1 to ensure consistent hashing
-    exp = Experiment(self._ai_db, config, axes, seeds)
+    exp = Experiment(self._ai_db, config, axes, seeds, options)
     if exp.experiment_hash in self._experiments:
       logging.error(f'Experiment with hash {exp.experiment_hash!r} already exists')
       return self._objects[exp.experiment_hash]  # return existing object
@@ -235,6 +252,7 @@ class Experiment:
     config: db.AIMetaType,
     axes: list[AxisType],
     seeds: list[int],
+    options: ExperimentOptionsType,
     *,
     loaded: ExperimentType | None = None,
   ) -> None:
@@ -246,6 +264,7 @@ class Experiment:
           seed, width, height, sampler_id, model_key) to be varied along the axes.
       axes: List of AxisType objects defining the experiment axes to vary along and their values.
       seeds: List of seed values to run the experiment with.
+      options: ExperimentOptionsType object containing options for the experiment
       loaded: (optional) MUTABLE ExperimentType object containing pre-existing experiment data
 
     Raises:
@@ -257,6 +276,7 @@ class Experiment:
     self._config: db.AIMetaType = copy.deepcopy(config)
     self._axes: list[AxisType] = copy.deepcopy(axes)
     self._seeds: list[int] = sorted(set(seeds))  # unique and sorted seeds for consistent order
+    self._options: ExperimentOptionsType = copy.deepcopy(options)
     if any(s for s in self._seeds if not (1 <= s <= base.SD_MAX_SEED)):
       raise Error(f'Invalid seed in seeds {self._seeds}, must be in [1, {base.SD_MAX_SEED}]')
     # make internal axis map and replace the REPLACE_ME with actual validation functions
@@ -278,6 +298,9 @@ class Experiment:
         cast('AxisFnType', PromptReplaceTunnel(self._config['negative'] or '')),
       )
     # validate axes and values
+    # TODO: respect vae
+    # TODO: respect pony
+    # TODO: respect clip2
     validate_fn: AxisFnType
     model_index: int | None = None
     for n, axis in enumerate(self._axes):
@@ -337,10 +360,11 @@ class Experiment:
       self.experiment = ExperimentType(
         config=self._config,
         axes=self._axes,
+        options=self._options,
         results=self._results,
         hash=self.experiment_hash,
       )
-    logging.info(f'Experiment seeds: {self._seeds}')
+    logging.info(f'Experiment seeds: {self._seeds} ; options {self._options}')
     logging.info(f'Experiment keys:\n{"\n".join(map(str, self._keys))}')
     total: int = len(self._keys) * len(self._results)
     logging.info(f'Experiment {self.experiment["hash"]!r} created with {total} combinations (sxk)')
@@ -349,7 +373,7 @@ class Experiment:
   def experiment_hash(self) -> str:
     """Get the experiment hash, based on the config and keys (axes)."""
     return base.CanonicalHash(
-      {'config': self._config, 'axes': self._axes, 'seeds': self._seeds}  # type: ignore[dict-item]
+      {'config': self._config, 'axes': self._axes, 'seeds': self._seeds, 'options': self._options}  # type: ignore[dict-item]
     )
 
   def Run(

@@ -19,41 +19,6 @@ _DEBUG_RECORD: bool = False  # keep False!
 _DEBUG_RECORD_SAVE_PATH: pathlib.Path = pathlib.Path('experiment_record.json')  # root! careful!
 
 
-def _BuildAxes(raw_axes: list[str]) -> list[newton.AxisType]:
-  """Build experiment axes from repeatable --axis CLI option strings.
-
-  Each raw string has the format "KEY:VAL1|VAL2|...". The order of the list
-  determines the order of the experiment axes. Duplicate keys are rejected.
-
-  Args:
-    raw_axes: List of raw axis definition strings, in the user-provided order.
-
-  Returns:
-    A list of `newton.AxisType` objects for the experiment, in CLI order.
-
-  Raises:
-    click.UsageError: If no axes are provided or a key is duplicated.
-
-  """
-  if not raw_axes:
-    raise click.UsageError(
-      f'At least one --axis is required; valid keys: {", ".join(sorted(base.AXIS_KEYS))}'
-    )
-  axes: list[newton.AxisType] = []
-  seen_keys: set[str] = set()
-  for raw in raw_axes:
-    key, values = base.ParseAxisDefinition(raw)
-    if key in seen_keys:
-      raise click.UsageError(f'Duplicate --axis key {key!r}; each axis can only appear once')
-    seen_keys.add(key)
-    axes.append(newton.AxisType(key=key, values=values))
-  logging.info(
-    f'Experiment axes ({len(axes)}): '  # noqa: G003
-    + ', '.join(f'{a["key"]}({len(a["values"])} values)' for a in axes)
-  )
-  return axes
-
-
 @experiment.app.command(
   'new',
   help=(
@@ -104,6 +69,9 @@ def New(  # documentation is help/epilog/args # noqa: D103
   redo: bool = base.SD_REDO_OPTION,  # type: ignore[assignment]
   seeds_raw: str = base.SD_EXPERIMENT_SEEDS_OPTION,  # type: ignore[assignment]
   raw_axes: list[str] = base.SD_EXPERIMENT_AXIS_OPTION,  # type: ignore[assignment]
+  respect_vae: bool = base.SD_EXPERIMENT_RESPECT_VAE_OPTION,  # type: ignore[assignment]
+  respect_pony: bool = base.SD_EXPERIMENT_RESPECT_PONY_OPTION,  # type: ignore[assignment]
+  respect_clip2: bool = base.SD_EXPERIMENT_RESPECT_CLIP2_OPTION,  # type: ignore[assignment]
 ) -> None:
   # check sanity
   config: experiment.ExperimentConfig = ctx.obj
@@ -171,6 +139,11 @@ def New(  # documentation is help/epilog/args # noqa: D103
       ),
       axes,
       seed_list,
+      newton.ExperimentOptionsType(
+        respect_vae=respect_vae,
+        respect_pony=respect_pony,
+        respect_clip2=respect_clip2,
+      ),
     )
     for _ in exp.Run(api, redo=redo):
       pass
@@ -181,3 +154,38 @@ def New(  # documentation is help/epilog/args # noqa: D103
     # this is debug only, we don't want tests here!
     api.SaveRecordToFile(_DEBUG_RECORD_SAVE_PATH)  # pragma: no cover
     raise click.UsageError('dont forget to set _DEBUG_RECORD to False!')  # pragma: no cover
+
+
+def _BuildAxes(raw_axes: list[str]) -> list[newton.AxisType]:
+  """Build experiment axes from repeatable --axis CLI option strings.
+
+  Each raw string has the format "KEY:VAL1|VAL2|...". The order of the list
+  determines the order of the experiment axes. Duplicate keys are rejected.
+
+  Args:
+    raw_axes: List of raw axis definition strings, in the user-provided order.
+
+  Returns:
+    A list of `newton.AxisType` objects for the experiment, in CLI order.
+
+  Raises:
+    click.UsageError: If no axes are provided or a key is duplicated.
+
+  """
+  if not raw_axes:
+    raise click.UsageError(
+      f'At least one --axis is required; valid keys: {", ".join(sorted(base.AXIS_KEYS))}'
+    )
+  axes: list[newton.AxisType] = []
+  seen_keys: set[str] = set()
+  for raw in raw_axes:
+    key, values = base.ParseAxisDefinition(raw)
+    if key in seen_keys:
+      raise click.UsageError(f'Duplicate --axis key {key!r}; each axis can only appear once')
+    seen_keys.add(key)
+    axes.append(newton.AxisType(key=key, values=values))
+  logging.info(
+    f'Experiment axes ({len(axes)}): '  # noqa: G003
+    + ', '.join(f'{a["key"]}({len(a["values"])} values)' for a in axes)
+  )
+  return axes
