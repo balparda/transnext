@@ -340,7 +340,7 @@ class Experiment:
         results=self._results,
         hash=self.experiment_hash,
       )
-    logging.info(f'Experiment seeds: {sorted(self._results)}')
+    logging.info(f'Experiment seeds: {self._seeds}')
     logging.info(f'Experiment keys:\n{"\n".join(map(str, self._keys))}')
     total: int = len(self._keys) * len(self._results)
     logging.info(f'Experiment {self.experiment["hash"]!r} created with {total} combinations (sxk)')

@@ -57,6 +57,9 @@ class _DBType(TypedDict):
 def _DBTypeFactory(overrides: dict[str, object] | None = None) -> _DBType:
   """Create new _DBType object with default values.
 
+  Args:
+    overrides: dict of fields to override from the defaults; if None, will use all defaults
+
   Returns:
     A new _DBType object with default values.
 
@@ -164,21 +167,29 @@ class AIModelSidecarType(TypedDict):
   is_pony: bool  # is this a Pony model?
   is_clip2: bool  # is this a CLIP2 model?
   hash: str  # hash of the model file, must be the same as the main hash
+  autov3: str | None  # AutoV3 hash for LoRAs, or None if not a LoRA
   overrides: tbase.JSONDict  # additional model default overrides
 
 
-def AIModelSidecarTypeFactory(overrides: dict[str, object] | None = None) -> AIModelSidecarType:
+def AIModelSidecarTypeFactory(
+  overrides: dict[str, object] | None = None, *, is_lora: bool = False
+) -> AIModelSidecarType:
   """Create new AIModelSidecarType object with default values.
+
+  Args:
+    overrides: dict of fields to override from the defaults; if None, will use all defaults
+    is_lora: whether this is for a lora/lycoris model
 
   Returns:
     A new AIModelSidecarType object with default values.
 
   """
   obj: AIModelSidecarType = {
-    'is_vae': True,
+    'is_vae': not is_lora,  # only regular models use VAEs; lora/lyco don't
     'is_pony': False,
     'is_clip2': False,
     'hash': '',
+    'autov3': None,
     'overrides': {},
   }
   obj.update(overrides or {})  # type: ignore[typeddict-item]
@@ -666,7 +677,7 @@ class AIDatabase:
     # done, log
     logging.info(f'Refreshed DB models; total models in DB: {len(self._db["models"])}')
 
-  def RefreshDBLora(self, api: APIProtocol) -> None:
+  def RefreshDBLora(self, api: APIProtocol) -> None:  # noqa: C901, PLR0912
     """Refresh the DB lora by fetching from the API and updating the DB. Does NOT delete lora.
 
     Args:
@@ -677,22 +688,66 @@ class AIDatabase:
 
     """
     loras: list[AIModelType] = api.GetLora()
-    # add missing hashes
-    all_paths: set[str] = {model['path'] for model in self._db['lora'].values() if model['path']}
+    # add missing hashes; first compute all known paths (no need to re-hash)
+    all_paths: dict[str, str] = {
+      lora['path']: lora['hash'] for lora in self._db['lora'].values() if lora['path']
+    }
     for lora in loras:
-      if lora['path'] in all_paths:
-        continue  # skip duplicates by path (we know we have this one), we only want unique models
-      if not lora['hash']:
-        logging.warning(f'Model with empty hash received from API, hashing {lora["path"]}')
-        lora['hash'] = hashes.Hash256(pathlib.Path(lora['path']).read_bytes()).hex()
+      # check the lora is there
+      path: pathlib.Path = pathlib.Path(lora['path'])
+      s_path: pathlib.Path = path.with_suffix(_SIDECAR_SUFFIX)
+      if not path.exists():
+        raise Error(f'Lora path does not exist: {lora["path"]}')
+      # find sidecar, if any: if enabled we always load it to the data
+      if self._sidecar and s_path.exists():
+        lora['sidecar'] = cast('AIModelSidecarType', json.loads(s_path.read_text(encoding='utf-8')))
       try:
-        lora['autov3'] = base.AutoV3LoraHash(lora['path'])
-      except tbase.Error:
-        logging.warning(f'Failed to compute AutoV3 hash for LoRA from SDNext API: {lora["path"]}')
-      logging.info(f'Adding lora: {lora["name"]} -> {lora["hash"]}/{lora.get("autov3", "-")}')
-      if lora['hash'] in self._db['lora']:
-        raise Error(f'Lora {lora} already exists in DB {self._db["lora"][lora["hash"]]}')
-      self._db['lora'][lora['hash']] = lora  # add to DB lora
+        # check if we already have this path, if so we skip it
+        if lora['path'] in all_paths:
+          # check we are talking about the same file (hash) before skipping
+          if ((hsh := all_paths[lora['path']]) != lora['hash'] and lora['hash']) or (
+            lora['sidecar'] and lora['sidecar']['hash'] != hsh
+          ):
+            raise Error(f'Hash mismatch: {hsh!r} vs {lora["hash"]!r} or SIDECAR')
+          continue  # skip duplicates by path (we know we have this one), we only want unique lora
+        # if we don't have the hash, we need to compute it (costly, so we do it only for new paths)
+        if not lora['hash']:
+          if lora['sidecar'] and lora['sidecar']['hash']:
+            logging.info(f'Got lora hash from sidecar: {lora["sidecar"]["hash"]!r}')
+            lora['hash'] = lora['sidecar']['hash']  # if sidecar has the hash, we can use it
+          else:
+            logging.warning(f'Lora with empty hash received from API, hashing {lora["path"]}')
+            lora['hash'] = hashes.Hash256(pathlib.Path(lora['path']).read_bytes()).hex()
+        # compute AutoV3 hash (LoRA-specific): use sidecar value if available to avoid recomputing
+        if lora['sidecar'] and lora['sidecar']['autov3']:
+          logging.info(f'Got lora autov3 from sidecar: {lora["sidecar"]["autov3"]!r}')
+          lora['autov3'] = lora['sidecar']['autov3']
+        else:
+          try:
+            lora['autov3'] = base.AutoV3LoraHash(lora['path'])
+          except tbase.Error:
+            logging.warning(
+              f'Failed to compute AutoV3 hash for LoRA from SDNext API: {lora["path"]}'
+            )
+        # final check, add to DB
+        if lora['hash'] in self._db['lora']:
+          raise Error(f'Lora {lora} already exists in DB {self._db["lora"][lora["hash"]]}')
+        logging.info(f'Adding lora: {lora["name"]} -> {lora["hash"]}/{lora.get("autov3", "-")}')
+        self._db['lora'][lora['hash']] = lora  # add to DB lora
+      finally:
+        # finally block to ensure we do this even on continue...
+        # if no sidecar but we do have a hash, add a default one, include hash and autov3
+        if lora['hash'] and self._sidecar and not s_path.exists():
+          s_path.write_text(
+            json.dumps(  # indent, thus readable
+              AIModelSidecarTypeFactory(
+                {'hash': lora['hash'], 'autov3': lora.get('autov3')}, is_lora=True
+              ),
+              separators=(',', ':'),
+              indent=2,
+            ),
+            encoding='utf-8',
+          )
     # done, log
     logging.info(f'Refreshed DB lora; total lora in DB: {len(self._db["lora"])}')
 
