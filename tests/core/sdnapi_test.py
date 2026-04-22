@@ -938,3 +938,182 @@ def testCallNoPayload() -> None:
     timeout=300,
     verify=False,
   )
+
+
+# ─── API.SaveRecordToFile ─────────────────────────────────────────────────────
+
+
+def testSaveRecordToFileNoRecordLogs(tmp_path: pathlib.Path) -> None:
+  """SaveRecordToFile logs error and returns when no record mode is set."""
+  api: sdnapi.API = _MockAPI()
+  out_file: pathlib.Path = tmp_path / 'record.json'
+  with mock.patch('logging.error') as mock_err:
+    api.SaveRecordToFile(out_file)
+    mock_err.assert_called_once()
+  assert not out_file.exists()
+
+
+def testSaveRecordToFileWritesJSON(tmp_path: pathlib.Path) -> None:
+  """SaveRecordToFile writes recorded calls to a JSON file."""
+  api: sdnapi.API = _MockAPI(record=True)  # type: ignore[arg-type]
+  # inject a fake record
+  api._call_record = [{'call': {'method': 'GET', 'url': '/test', 'payload': None}, 'response': {}}]  # type: ignore[assignment]
+  out_file: pathlib.Path = tmp_path / 'record.json'
+  api.SaveRecordToFile(out_file)
+  assert out_file.exists()
+  saved: tbase.JSONValue = json.loads(out_file.read_text(encoding='utf-8'))
+  assert isinstance(saved, list)
+  assert len(saved) == 1
+
+
+# ─── API.flags property ──────────────────────────────────────────────────────
+
+
+def testFlagsPropertySuccess() -> None:
+  """Flags property returns a dict of command flags."""
+  api: sdnapi.API = _MockAPI()
+  flags: dict[str, bool | str] = {'flag_a': True, 'flag_b': 'value'}
+  with mock.patch.object(api, 'Call', return_value=flags):
+    result = api.flags
+  assert result == flags
+
+
+def testFlagsPropertyInvalidResponseRaises() -> None:
+  """Flags property raises Error when response is not a dict."""
+  api: sdnapi.API = _MockAPI()
+  with (
+    mock.patch.object(api, 'Call', return_value=['not', 'a', 'dict']),
+    pytest.raises(sdnapi.Error, match='Invalid command flags'),
+  ):
+    _ = api.flags
+
+
+# ─── API.GetLora — additional edge cases ─────────────────────────────────────
+
+
+def testGetLoraInvalidEntryRaises() -> None:
+  """GetLora raises Error when a lora entry is not a dict."""
+  api: sdnapi.API = _MockAPI()
+  with (
+    mock.patch.object(api, 'Call', return_value=['not-a-dict-entry']),
+    pytest.raises(sdnapi.Error, match='Invalid model entry'),
+  ):
+    api.GetLora()
+
+
+def testGetLoraUnknownSsNetworkModuleLogsError() -> None:
+  """GetLora logs error for unknown ss_network_module but still returns the lora."""
+  api: sdnapi.API = _MockAPI()
+  api_response: tbase.JSONValue = [
+    {
+      'name': 'test-lora',
+      'alias': 'alias',
+      'path': '/tmp/lora.safetensors',  # noqa: S108
+      'metadata': {'ss_network_module': 'some.unknown.module'},
+    },
+  ]
+  with (
+    mock.patch.object(api, 'Call', return_value=api_response),
+    mock.patch('pathlib.Path.exists', return_value=True),
+    mock.patch('logging.error') as mock_err,
+  ):
+    result = api.GetLora()
+  mock_err.assert_called_once()
+  assert result[0]['function'] == db.ModelFunction.Lora.value
+
+
+# ─── API.GetEmbeddings ────────────────────────────────────────────────────────
+
+
+def testGetEmbeddingsSuccess(tmp_path: pathlib.Path) -> None:
+  """GetEmbeddings returns name→path mapping for loaded embeddings."""
+  emb_file: pathlib.Path = tmp_path / 'zPDXL3.pt'
+  emb_file.write_bytes(b'dummy')
+  api: sdnapi.API = _MockAPI()
+  api_response: tbase.JSONValue = {
+    'loaded': [
+      {'name': 'zPDXL3', 'filename': str(emb_file)},
+    ],
+    'skipped': [],
+  }
+  with mock.patch.object(api, 'Call', return_value=api_response):
+    result: dict[str, str] = api.GetEmbeddings()
+  assert 'zPDXL3' in result
+  assert result['zPDXL3'] == str(emb_file)
+
+
+def testGetEmbeddingsInvalidResponseRaises() -> None:
+  """GetEmbeddings raises Error when response is not a dict with 'loaded'."""
+  api: sdnapi.API = _MockAPI()
+  with (
+    mock.patch.object(api, 'Call', return_value='not-a-dict'),
+    pytest.raises(sdnapi.Error, match='Invalid embeddings response'),
+  ):
+    api.GetEmbeddings()
+
+
+def testGetEmbeddingsFileNotOnDiskNotIncluded(tmp_path: pathlib.Path) -> None:
+  """GetEmbeddings silently skips embeddings whose files don't exist on disk."""
+  api: sdnapi.API = _MockAPI()
+  api_response: tbase.JSONValue = {
+    'loaded': [
+      {'name': 'missing', 'filename': str(tmp_path / 'nonexistent.pt')},
+    ],
+    'skipped': [],
+  }
+  with mock.patch.object(api, 'Call', return_value=api_response):
+    result: dict[str, str] = api.GetEmbeddings()
+  assert 'missing' not in result
+
+
+# ─── API.Txt2Img — model name mismatch error ─────────────────────────────────
+
+
+def testTxt2ImgModelNameMismatchRaises() -> None:
+  """Txt2Img raises Error when response model name doesn't match the requested model."""
+  api: sdnapi.API = _MockAPI()
+  # model name 'different-model-name' but API response says 'test-model'
+  model: db.AIModelType = _MakeModel(h='abc123', name='different-model-name')
+  meta: db.AIMetaType = _MakeMeta(
+    {'width': _TEST_PNG_WIDTH, 'height': _TEST_PNG_HEIGHT, 'seed': 666}
+  )
+  data: dict[str, object] = _Txt2ImgAPIData()  # has sd_model_checkpoint='test-model'
+  with mock.patch.object(api, 'Call') as mock_call:
+    mock_call.side_effect = [
+      {'sd_checkpoint_hash': 'abc123', 'sd_model_checkpoint': 'different-model-name'},
+      None,  # options set
+      data,  # txt2img
+    ]
+    with pytest.raises(sdnapi.Error, match='Model name mismatch'):
+      api.Txt2Img(model, meta)
+
+
+# ─── _Call with record_list ────────────────────────────────────────────────────
+
+
+def testCallAppendsToRecordList() -> None:
+  """_Call appends call+response to record_list when provided."""
+  record: list[tbase.JSONDict] = []
+  mock_method = mock.Mock(return_value=_MockCallResponse({'result': 'ok'}))
+  mock_method.__name__ = 'post'
+  sdnapi._Call(
+    mock_method,
+    'http://localhost:7860',
+    '/test',
+    {'a': 1},
+    record_list=record,
+  )
+  assert record == [
+    {
+      'call': {
+        'method': 'POST',
+        'payload': {
+          'a': 1,
+        },
+        'url': 'http://localhost:7860/test',
+      },
+      'response': {
+        'result': 'ok',
+      },
+    },
+  ]

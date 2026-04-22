@@ -22,7 +22,7 @@ from transcrypto.utils import base, config
 import transnext
 
 _APP_NAME: str = 'transnext'  # this is the directory name, the package name
-_APP_NAMES: set[str] = {'gen'}  # this is the console scripts names
+_APP_NAMES: set[str] = {'gen', 'experiment'}  # this is the console scripts names
 
 
 @pytest.mark.integration

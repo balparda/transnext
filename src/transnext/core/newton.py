@@ -16,7 +16,6 @@ from typing import Protocol, TypedDict, cast, overload
 
 from PIL import Image, ImageDraw, ImageFont
 from transcrypto.core import hashes
-from transcrypto.utils import base as tbase
 from transcrypto.utils import timer
 
 from transnext import __version__
@@ -441,7 +440,7 @@ class Experiment:
     ):
       path_data: db.DBImagePathType = next(iter(image_obj['paths'].values()))
       path_data['ai_meta'] = copy.deepcopy(self._config)
-      path_data['sd_info'] = cast('tbase.JSONDict', copy.deepcopy(self._axes))
+      path_data['sd_info'] = {ax['key']: ax['values'] for ax in self._axes}  # type: ignore[index]
       path_data['sd_params'] = {'seeds': list(self._seeds), 'grid_index': n}
       yield (image_obj, image_data)
 

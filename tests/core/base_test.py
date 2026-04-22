@@ -7,10 +7,12 @@ from __future__ import annotations
 import importlib
 import io
 import os
+import pathlib
 from unittest import mock
 
 import pytest
 from PIL import Image, PngImagePlugin
+from transcrypto.utils import base as tbase
 
 from transnext.core import base
 
@@ -311,3 +313,217 @@ def testSeedGenRange() -> None:
   """SeedGen returns a value in the valid seed range."""
   seed: int = base.SeedGen()
   assert 2**16 - 1 <= seed <= base.SD_MAX_SEED
+
+
+# ─── AutoV3LoraHash ─────────────────────────────────────────────────────────────
+
+
+def testAutoV3LoraHashValid(tmp_path: pathlib.Path) -> None:
+  """AutoV3LoraHash returns a 12-char hex string for a valid safetensors file."""
+  f: pathlib.Path = tmp_path / 'model.safetensors'
+  # a valid safetensors file: 8-byte little-endian header length followed by header + data
+  header = b'{"__metadata__": {}}'
+  header_len: bytes = len(header).to_bytes(8, 'little')
+  f.write_bytes(header_len + header + b'weights-data-here')
+  result: str = base.AutoV3LoraHash(str(f))
+  assert isinstance(result, str)
+  assert len(result) == 12  # first 12 chars of SHA256 hex
+
+
+def testAutoV3LoraHashNotSafetensorsRaises(tmp_path: pathlib.Path) -> None:
+  """AutoV3LoraHash raises Error for non-.safetensors files."""
+  f: pathlib.Path = tmp_path / 'model.bin'
+  f.write_bytes(b'not a safetensors file')
+  with pytest.raises(base.Error, match='Invalid LoRA'):
+    base.AutoV3LoraHash(str(f))
+
+
+def testAutoV3LoraHashTooShortRaises(tmp_path: pathlib.Path) -> None:
+  """AutoV3LoraHash raises Error when file is too small to contain a header length."""
+  f: pathlib.Path = tmp_path / 'tiny.safetensors'
+  f.write_bytes(b'\x00\x01\x02')  # less than 8 bytes
+  with pytest.raises(base.Error, match='header length'):
+    base.AutoV3LoraHash(str(f))
+
+
+# ─── GetFileCreation ──────────────────────────────────────────────────────────
+
+
+def testGetFileCreationMissingRaises(tmp_path: pathlib.Path) -> None:
+  """GetFileCreation raises Error for a path that does not exist."""
+  missing: pathlib.Path = tmp_path / 'no-such-file.txt'
+  with pytest.raises(base.Error, match='File not found'):
+    base.GetFileCreation(missing)
+
+
+def testGetFileCreationExists(tmp_path: pathlib.Path) -> None:
+  """GetFileCreation returns a positive int for an existing file."""
+  f: pathlib.Path = tmp_path / 'exists.txt'
+  f.write_bytes(b'hello')
+  ts: int = base.GetFileCreation(f)
+  assert isinstance(ts, int)
+  assert ts > 0
+
+
+# ─── ParseIntList ──────────────────────────────────────────────────────────────
+
+
+def testParseIntListBasic() -> None:
+  """ParseIntList parses a valid pipe-separated list."""
+  assert base.ParseIntList('1|2|3', name='x', min_val=0, max_val=10) == [1, 2, 3]
+
+
+def testParseIntListDedup() -> None:
+  """ParseIntList removes duplicates while preserving order."""
+  assert base.ParseIntList('5|3|5|3', name='x', min_val=0, max_val=10) == [5, 3]
+
+
+def testParseIntListEmptyRaises() -> None:
+  """ParseIntList raises Error for empty string input."""
+  with pytest.raises(base.Error, match='empty list'):
+    base.ParseIntList('', name='x', min_val=0, max_val=10)
+
+
+def testParseIntListNonIntRaises() -> None:
+  """ParseIntList raises Error when a value is not an integer."""
+  with pytest.raises(base.Error, match='invalid integer'):
+    base.ParseIntList('1|foo|3', name='x', min_val=0, max_val=10)
+
+
+def testParseIntListOutOfRangeRaises() -> None:
+  """ParseIntList raises Error when a value is out of range."""
+  with pytest.raises(base.Error, match='out of range'):
+    base.ParseIntList('1|99|3', name='x', min_val=0, max_val=10)
+
+
+# ─── ParseFloatListAsScaledInt ────────────────────────────────────────────────
+
+
+def testParseFloatListBasic() -> None:
+  """ParseFloatListAsScaledInt converts floats to scaled ints."""
+  assert base.ParseFloatListAsScaledInt(
+    '6.0|7.5', name='cfg', scale=10, min_val=1.0, max_val=30.0
+  ) == [60, 75]
+
+
+def testParseFloatListDedup() -> None:
+  """ParseFloatListAsScaledInt removes duplicates after scaling."""
+  assert base.ParseFloatListAsScaledInt(
+    '6.0|6.0', name='cfg', scale=10, min_val=1.0, max_val=30.0
+  ) == [60]
+
+
+def testParseFloatListEmptyRaises() -> None:
+  """ParseFloatListAsScaledInt raises Error for empty input."""
+  with pytest.raises(base.Error, match='empty list'):
+    base.ParseFloatListAsScaledInt('', name='cfg', scale=10, min_val=1.0, max_val=30.0)
+
+
+def testParseFloatListNonFloatRaises() -> None:
+  """ParseFloatListAsScaledInt raises Error when a value is not a float."""
+  with pytest.raises(base.Error, match='invalid float'):
+    base.ParseFloatListAsScaledInt(
+      '7.0|not_a_float', name='cfg', scale=10, min_val=1.0, max_val=30.0
+    )
+
+
+def testParseFloatListOutOfRangeRaises() -> None:
+  """ParseFloatListAsScaledInt raises Error when a value is out of range."""
+  with pytest.raises(base.Error, match='out of range'):
+    base.ParseFloatListAsScaledInt('99.0', name='cfg', scale=10, min_val=1.0, max_val=30.0)
+
+
+# ─── ParseStrList ──────────────────────────────────────────────────────────────
+
+
+def testParseStrListBasic() -> None:
+  """ParseStrList returns a deduplicated list of strings."""
+  assert base.ParseStrList('a|b|c', name='x') == ['a', 'b', 'c']
+
+
+def testParseStrListDedup() -> None:
+  """ParseStrList deduplicates while preserving order."""
+  assert base.ParseStrList('a|b|a', name='x') == ['a', 'b']
+
+
+def testParseStrListEmptyStringRaises() -> None:
+  """ParseStrList raises Error for empty or all-whitespace input."""
+  with pytest.raises(base.Error, match='empty list'):
+    base.ParseStrList('', name='x')
+
+
+# ─── ParseAxisDefinition ──────────────────────────────────────────────────────
+
+
+def testParseAxisDefinitionNoColonRaises() -> None:
+  """ParseAxisDefinition raises Error when input has no colon."""
+  with pytest.raises(base.Error, match='invalid format'):
+    base.ParseAxisDefinition('no-colon')
+
+
+def testParseAxisDefinitionUnknownKeyRaises() -> None:
+  """ParseAxisDefinition raises Error for an unknown axis key."""
+  with pytest.raises(base.Error, match='unknown key'):
+    base.ParseAxisDefinition('not_a_key:1|2')
+
+
+def testParseAxisDefinitionCFGScale() -> None:
+  """ParseAxisDefinition parses cfg_scale axis into scaled ints."""
+  key, vals = base.ParseAxisDefinition('cfg_scale:7.0|8.5')
+  assert key == 'cfg_scale'
+  assert vals == [70, 85]
+
+
+def testParseAxisDefinitionSamplerValid() -> None:
+  """ParseAxisDefinition parses a valid sampler axis."""
+  sampler: base.Sampler = next(s for s in base.Sampler if s not in base.SamplerA1111)
+  key, vals = base.ParseAxisDefinition(f'sampler:{sampler.value}')
+  assert key == 'sampler'
+  assert vals == [sampler.value]
+
+
+def testParseAxisDefinitionSamplerUnknownRaises() -> None:
+  """ParseAxisDefinition raises Error for an unknown sampler value."""
+  with pytest.raises(base.Error, match='unknown sampler'):
+    base.ParseAxisDefinition('sampler:NOT_A_VALID_SAMPLER_XYZ')
+
+
+# ─── GetBasicDataFromImage (invalid size) ─────────────────────────────────────
+
+
+def testGetBasicDataFromImageInvalidSizeRaises() -> None:
+  """GetBasicDataFromImage raises Error on a zero-size or invalid image."""
+  # create a 1x1 black PNG, then craft bytes that decode to an invalid size
+  # the easiest way is to mock PIL Image to report size (0, 0)
+  buf = io.BytesIO()
+  Image.new('RGB', (1, 1), color='black').save(buf, format='PNG')
+  png_bytes: bytes = buf.getvalue()
+  with mock.patch('PIL.Image.open') as mock_open:
+    mock_img = mock.MagicMock()
+    mock_img.__enter__ = mock.Mock(return_value=mock_img)
+    mock_img.__exit__ = mock.Mock(return_value=False)
+    mock_img.format = 'PNG'
+    mock_img.width = 0
+    mock_img.height = 0
+    mock_open.return_value = mock_img
+    with pytest.raises(base.Error, match='Invalid image size'):
+      base.GetBasicDataFromImage(png_bytes)
+
+
+# ─── CanonicalHash ─────────────────────────────────────────────────────────────
+
+
+def testCanonicalHashDeterministic() -> None:
+  """CanonicalHash returns the same hash for the same input."""
+  data: tbase.JSONValue = {'b': 2, 'a': 1}
+  assert base.CanonicalHash(data) == base.CanonicalHash(data)
+
+
+def testCanonicalHashOrderIndependent() -> None:
+  """CanonicalHash is independent of key order (uses sort_keys=True)."""
+  assert base.CanonicalHash({'a': 1, 'b': 2}) == base.CanonicalHash({'b': 2, 'a': 1})
+
+
+def testCanonicalHashDifferentInputsDifferentHashes() -> None:
+  """CanonicalHash produces different hashes for different inputs."""
+  assert base.CanonicalHash({'a': 1}) != base.CanonicalHash({'a': 2})

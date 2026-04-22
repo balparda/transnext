@@ -6,27 +6,42 @@
 ```text
 Usage: gen [OPTIONS] COMMAND [ARGS]...                                                                                                                    
                                                                                                                                                            
- TransNext: SDXL helper, searcher, maker, based on SDNext API.                                                                                             
+ TransNext SDXL generator and DB maker.                                                                                                                    
                                                                                                                                                            
 ╭─ Options ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
-│ --version                                                            Show version and exit.                                                             │
-│ --verbose             -v                INTEGER RANGE [0<=x<=3]      Verbosity (nothing=ERROR, -v=WARNING, -vv=INFO, -vvv=DEBUG).           │
-│ --color                   --no-color                                 Force enable/disable colored output (respects NO_COLOR env var if not provided).   │
-│                                                                      Defaults to having colors.                                                         │
-│ --host                                  TEXT                         Host for the SDNext API; default: http://127.0.0.1      │
-│ --port                -p                INTEGER RANGE [0<=x<=65535]  Port number for the SDNext API; 0 ≤ p ≤ 65535; default: 7860        │
-│ --db                      --no-db                                    If True, TransNext will use/update its internal DB; False means it will not        │
-│                                                                      load/use DB; default: True (DB will be used/updated)                               │
+│ --version                                                                    Show version and exit.                                                     │
+│ --verbose             -v                        INTEGER RANGE [0<=x<=3]      Verbosity (nothing=ERROR, -v=WARNING, -vv=INFO, -vvv=DEBUG).   │
+│ --color                   --no-color                                         Force enable/disable colored output (respects NO_COLOR env var if not      │
+│                                                                              provided). Defaults to having colors.                                      │
+│ --host                                          TEXT                         Host for the SDNext API; default: http://127.0.0.1                         │
+│                                                                                                                              │
+│ --port                -p                        INTEGER RANGE [0<=x<=65535]  Port number for the SDNext API; 0 ≤ p ≤ 65535; default: 7860               │
+│                                                                                                                                          │
+│ --db                      --no-db                                            If True, TransNext will use/update its internal DB; False means it will    │
+│                                                                              not load/use DB; default: True (DB will be used/updated)                   │
 │                                                                                                                                            │
-│ --out                 -o                DIRECTORY                    The local output root directory path, ex: "~/foo/bar/"; will create                │
-│                                                                      sub-directories in this directory in the format YYYY-MM-DD for the days where      │
-│                                                                      images are generated; if you do not use DB (i.e., `--no-db`) this is mandatory,    │
-│                                                                      but with the DB activated it will store the last used output and re-use it;        │
-│                                                                      default: with `--db` default is last used, with `--no-db` no default and you must  │
-│                                                                      provide it                                                                         │
-│ --install-completion                                                 Install completion for the current shell.                                          │
-│ --show-completion                                                    Show completion for the current shell, to copy it or customize the installation.   │
-│ --help                                                               Show this message and exit.                                                        │
+│ --sidecar                 --no-sidecar                                       If True, SDNext API will save/load a sidecar JSON file with the model      │
+│                                                                              files (same directory); default: True                                      │
+│                                                                                                                                       │
+│ --respect-vae             --no-respect-vae                                   If True, accept override of VAE option by model; only respected if         │
+│                                                                              `--sidecar` is enabled; default: True                                      │
+│                                                                                                                                   │
+│ --respect-pony            --no-respect-pony                                  If True, accept override of Pony option by model; only respected if        │
+│                                                                              `--sidecar` is enabled; default: True                                      │
+│                                                                                                                                  │
+│ --respect-clip2           --no-respect-clip2                                 If True, accept override of CLIP2 option by model; only respected if       │
+│                                                                              `--sidecar` is enabled; default: True                                      │
+│                                                                                                                                 │
+│ --out                 -o                        DIRECTORY                    The local output root directory path, ex: "~/foo/bar/"; will create        │
+│                                                                              sub-directories in this directory in the format YYYY-MM-DD for the days    │
+│                                                                              where images are generated; if you do not use DB (i.e., `--no-db`) this is │
+│                                                                              mandatory, but with the DB activated it will store the last used output    │
+│                                                                              and re-use it; default: with `--db` default is last used, with `--no-db`   │
+│                                                                              no default and you must provide it                                         │
+│ --install-completion                                                         Install completion for the current shell.                                  │
+│ --show-completion                                                            Show completion for the current shell, to copy it or customize the         │
+│                                                                              installation.                                                              │
+│ --help                                                                       Show this message and exit.                                                │
 ╰─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
 ╭─ Commands ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
 │ markdown   Emit Markdown docs for the CLI (see README.md section "Creating a New Version").                                                             │

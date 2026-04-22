@@ -10,7 +10,7 @@ from typing import cast
 from unittest import mock
 
 import pytest
-from PIL import Image, PngImagePlugin
+from PIL import Image
 from transcrypto.core import hashes, key
 from transcrypto.utils import base as tbase
 from transcrypto.utils import config as app_config
@@ -751,22 +751,34 @@ def testModelsRef() -> None:
 
 # ─── _ImportImageFile ────────────────────────────────────────────────────────
 
+# Committed test PNG fixtures in tests/data/images/ — bytes are stable regardless of PIL version.
+_TEST_IMAGES_DIR: pathlib.Path = pathlib.Path(__file__).parent.parent / 'data' / 'images'
+_TEST_PNG_PLAIN: str = 'test_plain.png'
+_TEST_PNG_META_1: str = '6db2ba7302bd-20260417102202-e6bb9ea8-80-40-512-256-666-db088cdca097.png'
+_TEST_PNG_META_2: str = (
+  'ea94a595ace8-20260413105628-dec85dd6-80-30-800-800-1234321-ec24329d4bd5.png'
+)
+
 
 def _MakeTestPNG(
   tmp_path: pathlib.Path,
   name: str = 'test.png',
-  size: tuple[int, int] = (64, 64),
-  params: str | None = None,
+  *,
+  src_file: str = _TEST_PNG_PLAIN,
 ) -> tuple[pathlib.Path, bytes]:
-  """Create a minimal PNG file with optional metadata and return (path, bytes)."""  # noqa: DOC201
-  img: Image.Image = Image.new('RGB', size, color='blue')
-  png_info: PngImagePlugin.PngInfo | None = None
-  if params is not None:
-    png_info = PngImagePlugin.PngInfo()
-    png_info.add_text('parameters', params)
-  buf = io.BytesIO()
-  img.save(buf, format='PNG', pnginfo=png_info)
-  img_bytes: bytes = buf.getvalue()
+  """Copy a committed real test PNG from tests/data/images/ to tmp_path.
+
+  Args:
+    tmp_path: Destination directory.
+    name: File name to write inside tmp_path.
+    src_file: Source filename inside tests/data/images/; defaults to the plain PNG with no
+      metadata. Use _TEST_PNG_META_1 or _TEST_PNG_META_2 for images with AI metadata.
+
+  Returns:
+    Tuple of (path, raw_bytes) for the created file.
+
+  """
+  img_bytes: bytes = (_TEST_IMAGES_DIR / src_file).read_bytes()
   out: pathlib.Path = tmp_path / name
   out.write_bytes(img_bytes)
   return (out, img_bytes)
@@ -774,15 +786,11 @@ def _MakeTestPNG(
 
 def testImportImageFilePNGWithMetadata(tmp_path: pathlib.Path) -> None:
   """_ImportImageFile parses a PNG with SDNext metadata correctly."""
-  params = (
-    'a nice photo\n'
-    'Negative prompt: ugly\n'
-    'Steps: 20, Size: 64x64, Sampler: DPM++ SDE, Seed: 12345, '
-    'CFG scale: 7.5, Model hash: abc123, Model: mymodel'
-  )
-  img_path, img_bytes = _MakeTestPNG(tmp_path, params=params)
+  # Use the real committed test image (6db2ba7302bd...) — bytes are stable across PIL versions.
+  img_path, img_bytes = _MakeTestPNG(tmp_path, src_file=_TEST_PNG_META_1)
   img_hash: str = hashes.Hash256(img_bytes).hex()
-  models: dict[str, str] = {'abc123-full-hash': 'mymodel mymodel'}
+  # The image embeds "Model hash: e6bb9ea85b" — supply the matching full hash.
+  models: dict[str, str] = {'e6bb9ea85b1065e7bce3cf03': 'SDXL_00_v10VAEFix SDXL_00_v10VAEFix'}
   loras: dict[str, str] = {}
   entry: db.DBImageType = db._ImportImageFile(
     img_path,
@@ -797,58 +805,65 @@ def testImportImageFilePNGWithMetadata(tmp_path: pathlib.Path) -> None:
   assert entry['paths'][path_key].pop('created_at') > 1000000  # type: ignore[misc]
   assert entry == {
     'format': 'PNG',
-    'hash': 'eac962d149e1206383c88f416fddc3f90ea0de64448b26dfc6ab62e07b41d307',
-    'height': 64,
-    'info': 'a nice photo\n'
-    'Negative prompt: ugly\n'
-    'Steps: 20, Size: 64x64, Sampler: DPM++ SDE, Seed: 12345, CFG scale: 7.5, '
-    'Model hash: abc123, Model: mymodel',
+    'hash': 'db088cdca09796cadee02ec7eef8dd8e2227490a5afbb353461ab34d1ddbd8b9',
+    'height': 256,
+    'info': (
+      'dark knight in moody rain\n'
+      'Negative prompt: batman, comic, text\n'
+      'Steps: 40, Size: 512x256, Sampler: DPM SDE, Scheduler: DPMSolverSDEScheduler, '
+      'Seed: 666, CFG scale: 8.0, CFG rescale: 0.8, CFG end: 0.9, Clip skip: 2, '
+      'App: SD.Next, Version: 0eb4a98, Parser: a1111, Pipeline: StableDiffusionXLPipeline, '
+      'Operations: txt2img, Model: SDXL_00_XLB_v10VAEFix, Model hash: e6bb9ea85b, '
+      'Variation seed: 999, Variation strength: 0.3, Sampler spacing: linspace, '
+      'Sampler sigma: karras, Sampler type: epsilon, Sampler beta schedule: linear, '
+      'FreeU: b1=1.1 b2=1.15 s1=0.7 s2=0.6'
+    ),
     'paths': {
       path_key: {
         'ai_meta': {
-          'cfg_end': 10,
-          'cfg_rescale': 0,
-          'cfg_scale': 75,
+          'cfg_end': 9,
+          'cfg_rescale': 80,
+          'cfg_scale': 80,
           'cfg_skip': None,
-          'clip_skip': 10,
-          'freeu': None,
-          'height': 64,
+          'clip_skip': 20,
+          'freeu': {'b1': 110, 'b2': 115, 's1': 70, 's2': 60},
+          'height': 256,
           'img2img': None,
           'lora': None,
-          'model_hash': 'abc123-full-hash',
+          'model_hash': 'e6bb9ea85b1065e7bce3cf03',
           'n_embeddings': None,
-          'negative': 'ugly',
+          'negative': 'batman, comic, text',
           'ngms': None,
           'p_embeddings': None,
           'parser': 'a1111',
-          'positive': 'a nice photo',
-          'sampler': 'DPM++ SDE',
-          'sch_beta': None,
-          'sch_sigma': None,
-          'sch_spacing': None,
-          'sch_type': None,
-          'seed': 12345,
-          'steps': 20,
-          'v_seed': None,
-          'width': 64,
+          'positive': 'dark knight in moody rain',
+          'sampler': 'DPM SDE',
+          'sch_beta': 'linear',
+          'sch_sigma': 'karras',
+          'sch_spacing': 'linspace',
+          'sch_type': 'epsilon',
+          'seed': 666,
+          'steps': 40,
+          'v_seed': {'percent': 30, 'seed': 999},
+          'width': 512,
         },
         'main': False,
-        'origin': 'AIUnknown',
+        'origin': 'SDNext',
         'parse_errors': None,
         'sd_info': None,
         'sd_params': None,
-        'version': None,
+        'version': '0eb4a98',
       },
     },
-    'raw_hash': 'c34fb4331b2d031d7c644860b54a678424c66ef12352fc165a91dc09840d98fd',
-    'size': 346,
-    'width': 64,
+    'raw_hash': 'dcf3c5cacfddc7b23f3314c680263c03ace7fedc456f6daa1907d5f7ed30af2e',
+    'size': 166684,
+    'width': 512,
   }
 
 
 def testImportImageFilePNGNoMetadata(tmp_path: pathlib.Path) -> None:
   """_ImportImageFile returns entry with no ai_meta when PNG has no metadata."""
-  img_path, img_bytes = _MakeTestPNG(tmp_path)
+  img_path, img_bytes = _MakeTestPNG(tmp_path)  # default: test_plain.png (no metadata)
   img_hash: str = hashes.Hash256(img_bytes).hex()
   entry: db.DBImageType = db._ImportImageFile(
     img_path,
@@ -863,8 +878,8 @@ def testImportImageFilePNGNoMetadata(tmp_path: pathlib.Path) -> None:
   assert entry['paths'][path_key].pop('created_at') > 1000000  # type: ignore[misc]
   assert entry == {
     'format': 'PNG',
-    'hash': 'e9da449bcc3b10b9b37834ea7add3566c3df058c3bf56f74ef706f49848d0126',
-    'height': 64,
+    'hash': '47c0b232b83e0aaf92d46f39b9066c67528fc4c31fc88bc50d7d8e2291137145',
+    'height': 8,
     'info': None,
     'paths': {
       path_key: {
@@ -877,9 +892,9 @@ def testImportImageFilePNGNoMetadata(tmp_path: pathlib.Path) -> None:
         'version': None,
       },
     },
-    'raw_hash': 'c34fb4331b2d031d7c644860b54a678424c66ef12352fc165a91dc09840d98fd',
-    'size': 181,
-    'width': 64,
+    'raw_hash': '3d6876a0146de8576eb2395a858de1213d1b92c65b779df3a331cfd5a4584546',
+    'size': 78,
+    'width': 8,
   }
 
 
@@ -936,19 +951,14 @@ def testSyncNewImageImported(tmp_path: pathlib.Path) -> None:
   """Sync imports a new PNG from a known source directory."""
   src_dir: pathlib.Path = tmp_path / 'imgs'
   src_dir.mkdir()
-  params = (
-    'sunset photo\n'
-    'Negative prompt: rain\n'
-    'Steps: 15, Size: 64x64, Sampler: Euler, Seed: 777, CFG scale: 6.0, '
-    'Model hash: deadbeef00, Model: my-sdxl-model'
-  )
-  _, img_bytes = _MakeTestPNG(src_dir, params=params)
+  # Use the real committed test image (6db2ba7302bd...) — bytes are stable across PIL versions.
+  _, img_bytes = _MakeTestPNG(src_dir, src_file=_TEST_PNG_META_1)
   img_hash: str = hashes.Hash256(img_bytes).hex()
   ai_db = db.AIDatabase(_MakeAppConfig(tmp_path))
-  # model must be pre-populated so FindModelHash can resolve
-  ai_db._db['models']['deadbeef00'] = _MakeModel(
-    h='deadbeef00',
-    name='my-sdxl-model',
+  # model must be pre-populated so FindModelHash can resolve ("Model hash: e6bb9ea85b" in image)
+  ai_db._db['models']['e6bb9ea85b1065e7bce3cf03'] = _MakeModel(
+    h='e6bb9ea85b1065e7bce3cf03',
+    name='SDXL_00_v10VAEFix',
   )
   ai_db.Sync(add_dir=src_dir)
   assert img_hash in ai_db._db['images']
@@ -958,52 +968,59 @@ def testSyncNewImageImported(tmp_path: pathlib.Path) -> None:
   assert entry['paths'][path_key].pop('created_at') > 1000000  # type: ignore[misc]
   assert entry == {
     'format': 'PNG',
-    'hash': 'ccb1d9a1cc2add9120d466e8d83320ae11b2f93eca366bfd375749244e35180d',
-    'height': 64,
-    'info': 'sunset photo\n'
-    'Negative prompt: rain\n'
-    'Steps: 15, Size: 64x64, Sampler: Euler, Seed: 777, CFG scale: 6.0, Model '
-    'hash: deadbeef00, Model: my-sdxl-model',
+    'hash': 'db088cdca09796cadee02ec7eef8dd8e2227490a5afbb353461ab34d1ddbd8b9',
+    'height': 256,
+    'info': (
+      'dark knight in moody rain\n'
+      'Negative prompt: batman, comic, text\n'
+      'Steps: 40, Size: 512x256, Sampler: DPM SDE, Scheduler: DPMSolverSDEScheduler, '
+      'Seed: 666, CFG scale: 8.0, CFG rescale: 0.8, CFG end: 0.9, Clip skip: 2, '
+      'App: SD.Next, Version: 0eb4a98, Parser: a1111, Pipeline: StableDiffusionXLPipeline, '
+      'Operations: txt2img, Model: SDXL_00_XLB_v10VAEFix, Model hash: e6bb9ea85b, '
+      'Variation seed: 999, Variation strength: 0.3, Sampler spacing: linspace, '
+      'Sampler sigma: karras, Sampler type: epsilon, Sampler beta schedule: linear, '
+      'FreeU: b1=1.1 b2=1.15 s1=0.7 s2=0.6'
+    ),
     'paths': {
       path_key: {
         'ai_meta': {
-          'cfg_end': 10,
-          'cfg_rescale': 0,
-          'cfg_scale': 60,
+          'cfg_end': 9,
+          'cfg_rescale': 80,
+          'cfg_scale': 80,
           'cfg_skip': None,
-          'clip_skip': 10,
-          'freeu': None,
-          'height': 64,
+          'clip_skip': 20,
+          'freeu': {'b1': 110, 'b2': 115, 's1': 70, 's2': 60},
+          'height': 256,
           'img2img': None,
           'lora': None,
-          'model_hash': 'deadbeef00',
+          'model_hash': 'e6bb9ea85b1065e7bce3cf03',
           'n_embeddings': None,
-          'negative': 'rain',
+          'negative': 'batman, comic, text',
           'ngms': None,
           'p_embeddings': None,
           'parser': 'a1111',
-          'positive': 'sunset photo',
-          'sampler': 'Euler',
-          'sch_beta': None,
-          'sch_sigma': None,
-          'sch_spacing': None,
-          'sch_type': None,
-          'seed': 777,
-          'steps': 15,
-          'v_seed': None,
-          'width': 64,
+          'positive': 'dark knight in moody rain',
+          'sampler': 'DPM SDE',
+          'sch_beta': 'linear',
+          'sch_sigma': 'karras',
+          'sch_spacing': 'linspace',
+          'sch_type': 'epsilon',
+          'seed': 666,
+          'steps': 40,
+          'v_seed': {'percent': 30, 'seed': 999},
+          'width': 512,
         },
         'main': False,
-        'origin': 'AIUnknown',
+        'origin': 'SDNext',
         'parse_errors': None,
         'sd_info': None,
         'sd_params': None,
-        'version': None,
+        'version': '0eb4a98',
       },
     },
-    'raw_hash': 'c34fb4331b2d031d7c644860b54a678424c66ef12352fc165a91dc09840d98fd',
-    'size': 350,
-    'width': 64,
+    'raw_hash': 'dcf3c5cacfddc7b23f3314c680263c03ace7fedc456f6daa1907d5f7ed30af2e',
+    'size': 166684,
+    'width': 512,
   }
 
 
@@ -1109,21 +1126,19 @@ def testSyncMultipleImagesInDir(tmp_path: pathlib.Path) -> None:
   src_dir.mkdir()
   sub_dir: pathlib.Path = src_dir / 'sub'
   sub_dir.mkdir()
-  # use distinct seeds so images produce different bytes (different hashes)
-  params_1 = (
-    'img one\nSteps: 20, Size: 64x64, Sampler: Euler, Seed: 100, CFG scale: 7.0, '
-    'Model hash: abc1230, Model: mymodel'
-  )
-  params_2 = (
-    'img two\nSteps: 20, Size: 64x64, Sampler: Euler, Seed: 200, CFG scale: 7.0, '
-    'Model hash: abc1230, Model: mymodel'
-  )
-  _, b1 = _MakeTestPNG(src_dir, 'a.png', params=params_1)
-  _, b2 = _MakeTestPNG(sub_dir, 'b.png', params=params_2)
+  # use two distinct real committed test images so h1 != h2
+  _, b1 = _MakeTestPNG(src_dir, 'a.png', src_file=_TEST_PNG_META_1)
+  _, b2 = _MakeTestPNG(sub_dir, 'b.png', src_file=_TEST_PNG_META_2)
   h1: str = hashes.Hash256(b1).hex()
   h2: str = hashes.Hash256(b2).hex()
   ai_db = db.AIDatabase(_MakeAppConfig(tmp_path))
-  ai_db._db['models']['abc1230'] = _MakeModel(h='abc1230', name='mymodel')
+  # pre-populate models for both images so FindModelHash can resolve
+  ai_db._db['models']['e6bb9ea85b1065e7bce3cf03'] = _MakeModel(
+    h='e6bb9ea85b1065e7bce3cf03', name='SDXL_00_v10VAEFix'
+  )
+  ai_db._db['models']['dec85dd6545e07bbd7a0fde6'] = _MakeModel(
+    h='dec85dd6545e07bbd7a0fde6', name='SDXL_10_COL'
+  )
   ai_db.Sync(add_dir=src_dir)
   assert h1 in ai_db._db['images']
   assert h2 in ai_db._db['images']
@@ -1423,6 +1438,27 @@ def testSyncRealImages(tmp_path: pathlib.Path) -> None:
           'sd_params': None,
         },
       },
+    },
+    '47c0b232b83e0aaf92d46f39b9066c67528fc4c31fc88bc50d7d8e2291137145': {
+      'format': 'PNG',
+      'hash': '47c0b232b83e0aaf92d46f39b9066c67528fc4c31fc88bc50d7d8e2291137145',
+      'height': 8,
+      'info': None,
+      'paths': {
+        str(images_dir / 'test_plain.png'): {
+          'ai_meta': None,
+          'created_at': 1700666999,
+          'main': False,
+          'origin': None,
+          'parse_errors': None,
+          'sd_info': None,
+          'sd_params': None,
+          'version': None,
+        },
+      },
+      'raw_hash': '3d6876a0146de8576eb2395a858de1213d1b92c65b779df3a331cfd5a4584546',
+      'size': 78,
+      'width': 8,
     },
   }
 
