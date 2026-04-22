@@ -265,7 +265,10 @@ Looks up the image by hash (or resolves a path to its hash), then calls the SDNe
 
 ```sh
 poetry run gen markdown > gen.md
+poetry run experiment markdown > experiment.md
 ```
+
+or just run `make docs`...
 
 ### Command structure
 
@@ -337,6 +340,7 @@ Requires `--db` (the default); will fail with `--no-db`.
 This software auto-generates docs for CLI apps:
 
 - [**`gen`** documentation](gen.md)
+- [**`experiment`** documentation](experiment.md)
 
 ### Configuration
 
@@ -471,6 +475,7 @@ The CLI layer (`gen.py` + `cli/`) handles argument parsing and wiring. The core 
 ├── CHANGELOG.md                  ⟸ latest changes/releases
 ├── LICENSE
 ├── Makefile
+├── experiment.md                 ⟸ auto-generated CLI doc (by `make docs` or `make ci`)
 ├── gen.md                        ⟸ auto-generated CLI doc (by `make docs` or `make ci`)
 ├── poetry.lock                   ⟸ maintained by Poetry, do not manually edit
 ├── pyproject.toml                ⟸ most important configurations live here
@@ -755,10 +760,10 @@ make type  # equivalent to: poetry run mypy src tests tests_integration
 
 ### Documentation updates
 
-CLI reference documentation (`gen.md`) is auto-generated from the Typer app:
+CLI reference documentation is auto-generated from the Typer app:
 
 ```sh
-make docs  # or: poetry run gen markdown > gen.md
+make docs
 ```
 
 Always run `make docs` (or `make ci`) before committing to keep the CLI docs in sync.

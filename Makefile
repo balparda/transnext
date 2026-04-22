@@ -31,8 +31,9 @@ precommit:
 	poetry run pre-commit run --all-files
 
 docs:
-	@echo "Generating gen.md"
+	@echo "Generating gen.md & experiment.md"
 	poetry run gen markdown > gen.md
+	poetry run experiment markdown > experiment.md
 
 req:
 	poetry export --format requirements.txt --without-hashes --output requirements.txt
