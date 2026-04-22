@@ -1,20 +1,19 @@
 #!/usr/bin/env python3
 # SPDX-FileCopyrightText: Copyright 2026 Daniel Balparda <balparda@github.com>
 # SPDX-License-Identifier: Apache-2.0
-"""Shows interesting errors found in the database, example missing models.
+"""Cleans the database keeping only model and lora entries, removing all images and experiments.
 
-This file is meant to be executed directly.
+This file is meant to be executed directly. It will prompt you to confirm before proceeding.
 
 Usage
-- ./scripts/show_errors.py [args]
-- Or: poetry run show_errors [args]
+- ./scripts/clean_db_leave_models.py [args]
+- Or: poetry run clean_db_leave_models [args]
 
 """
 
 from __future__ import annotations
 
 import pdb  # noqa: T100
-import re
 
 from rich.console import Console
 from transcrypto.utils import config as app_config
@@ -22,15 +21,9 @@ from transcrypto.utils import logging as cli_logging
 
 from transnext.core import db
 
-_MODEL_NOT_FOUND: re.Pattern[str] = re.compile(r'model\s#(?P<hash>.*)/(?P<name>.*)\snot found')
-_LORA_NOT_FOUND: re.Pattern[str] = re.compile(r'lora\s#(?P<hash>.*)/(?P<name>.*)\snot found')
-
-
-_PORT: int = 7860
-
 
 def Main() -> int:
-  """Show parse errors for all images in the DB.
+  """Clean the DB: remove all images and experiments, keep model and lora inventory.
 
   Returns:
     int: Exit code.

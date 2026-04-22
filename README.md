@@ -39,11 +39,13 @@ Since version 1.0.0 it is a PyPI package: <https://pypi.org/project/transnext/>
       - [Sync images from directories](#sync-images-from-directories)
       - [Reproduce an existing image](#reproduce-an-existing-image)
       - [Generate CLI documentation](#generate-cli-documentation)
+      - [Run a generation experiment](#run-a-generation-experiment)
     - [Command structure](#command-structure)
     - [Global flags](#global-flags)
     - [`make` command flags](#make-command-flags)
     - [`reproduce` command](#reproduce-command)
     - [`sync` command](#sync-command)
+    - [`experiment new` command](#experiment-new-command)
     - [CLI Commands Documentation](#cli-commands-documentation)
     - [Configuration](#configuration)
       - [Config file locations](#config-file-locations)
@@ -58,6 +60,7 @@ Since version 1.0.0 it is a PyPI package: <https://pypi.org/project/transnext/>
       - [Image generation (`make`)](#image-generation-make)
       - [Image sync (`sync`)](#image-sync-sync)
       - [Image reproduce (`reproduce`)](#image-reproduce-reproduce)
+      - [Image experiment (`experiment new`)](#image-experiment-experiment-new)
     - [Error handling](#error-handling)
     - [Security model](#security-model)
   - [Development Instructions](#development-instructions)
@@ -165,6 +168,10 @@ TransNext is a CLI tool for generating AI images using Stable Diffusion SDXL mod
 - **FreeU** — Backbone and skip-connection feature scaling that can improve generation quality without retraining (b1, b2, s1, s2 parameters)
 - **Variation seed** — A secondary seed that can be blended with the primary seed at a configurable strength to produce subtle variations of an image
 - **LoRA / LyCORIS** — Lightweight model adaptation layers; detected and tracked from both API model inventory and embedded PNG metadata
+- **Embedding** — A textual inversion token; embedding names in prompts are detected and tracked in `p_embeddings`/`n_embeddings` fields in the image metadata
+- **Experiment** — A systematic grid of generations: one base config varied along one or more axes (CFG, sampler, model, prompt) across a set of seed values; results are assembled into labeled XY grid comparison images
+- **Axis** — One dimension of an experiment: a named parameter (`cfg_scale`, `sampler`, `model_hash`, `positive`, or `negative`) with a pipe-separated list of values to sweep over
+- **Sidecar** — A `.transnext.json` file stored alongside a model file containing per-model metadata overrides (Pony prefix, CLIP2 skip, VAE settings)
 
 ### Inputs and outputs
 
@@ -226,6 +233,13 @@ Sync existing images into the database:
 poetry run gen sync ~/path/to/existing/images
 ```
 
+Run a grid experiment sweeping sampler and CFG:
+
+```sh
+poetry run experiment -vv --out ~/my-images new "a photo of a cat" \
+  --seeds "42|999" --axis "sampler:Euler a|DPM++ SDE" --axis "cfg_scale:6.0|9.0"
+```
+
 ### Common workflows
 
 #### Generate an image
@@ -270,10 +284,25 @@ poetry run experiment markdown > experiment.md
 
 or just run `make docs`...
 
+#### Run a generation experiment
+
+```sh
+poetry run experiment -vv --out ~/my-images new "a photo of a cat" \
+  --seeds "42|123|999" --axis "sampler:Euler a|DPM++ SDE" --axis "cfg_scale:6.0|9.0"
+```
+
+This will:
+
+1. Connect to the SDNext API
+2. Generate one image for each combination of seeds × samplers × CFG values (3 × 2 × 2 = 12 images)
+3. Assemble labeled XY grid PNGs (one per fixed-dimension combination) and store them in the DB
+4. All results are tracked per (seed, axis key) in the experiment entry in the DB
+
 ### Command structure
 
 ```sh
 gen [global flags] <command> [command flags] [args]
+experiment [global flags] <command> [command flags] [args]
 ```
 
 ### Global flags
@@ -287,6 +316,10 @@ gen [global flags] <command> [command flags] [args]
 | `--host` | SDNext API host URL | `http://127.0.0.1` |
 | `-p`, `--port` | SDNext API port (0-65535) | `7860` |
 | `--db`/`--no-db` | Use/update internal database | `--db` |
+| `--sidecar`/`--no-sidecar` | Save/load `.transnext.json` sidecar file alongside model files | `--sidecar` |
+| `--respect-vae`/`--no-respect-vae` | Apply VAE override from model sidecar (only with `--sidecar`) | `--respect-vae` |
+| `--respect-pony`/`--no-respect-pony` | Add Pony quality prefix to positive prompt when model sidecar marks it as a Pony model (only with `--sidecar`) | `--respect-pony` |
+| `--respect-clip2`/`--no-respect-clip2` | Set CLIP skip to 20 when model sidecar marks it as a CLIP2 model (only with `--sidecar`) | `--respect-clip2` |
 | `-o`, `--out` | Output root directory for generated images (creates `YYYY-MM-DD` sub-dirs) | last used (with `--db`) |
 
 ### `make` command flags
@@ -318,6 +351,7 @@ gen [global flags] <command> [command flags] [args]
 | `--s1` | FreeU s1 skip feature scale (0.0-3.0) | `0.75` |
 | `--s2` | FreeU s2 skip feature scale (0.0-3.0) | `0.65` |
 | `--backup`/`--no-backup` | Also save a backup on the SDNext server | `--no-backup` |
+| `--redo`/`--no-redo` | Force re-generation even if an identical image already exists in the DB | `--no-redo` |
 
 ### `reproduce` command
 
@@ -334,6 +368,29 @@ Requires `--db` (the default); will fail with `--no-db`.
 | --- | --- | --- |
 | `[ADD_DIR]` | Optional directory to add and sync | none (sync known dirs only) |
 | `--force-api`/`--no-force-api` | Require SDNext API connection; if `--no-force-api` (default), will try to connect but proceed standalone if unavailable | `--no-force-api` |
+| `--redo`/`--no-redo` | Force re-scan even for already-known images (re-parses all metadata) | `--no-redo` |
+
+### `experiment new` command
+
+The `experiment` CLI app (separate console script `experiment`) runs systematic generation experiments. It accepts the same global flags as `gen` and uses all the same generation parameters as `gen make` as the base configuration, varying selected axes across a set of seeds.
+
+```sh
+experiment [global flags] new [command flags] POSITIVE_PROMPT
+```
+
+| Flag | Description | Default |
+| --- | --- | --- |
+| (argument) `POSITIVE_PROMPT` | Base positive prompt (use `%` as a placeholder if `positive` is an axis) | — |
+| *(all `gen make` flags)* | Same generation flags as `gen make` (sampler, CFG, model, parser, FreeU, etc.) — these form the base config that the axes vary | *(same defaults)* |
+| `--seeds` | Pipe-separated seed values; use `-1` for random (e.g., `"42\|-1\|999"`) | `"-1"` |
+| `--axis` | Axis definition (repeatable, order matters): `"KEY:VAL1\|VAL2\|..."` — valid keys: `cfg_scale` (float), `sampler` (name), `model_hash` (key), `positive` (prompt replacement), `negative` (prompt replacement) | *(at least one required)* |
+| `--redo`/`--no-redo` | Force re-generation even if the result already exists | `--no-redo` |
+| `--backup`/`--no-backup` | Also save a backup on the SDNext server | `--no-backup` |
+
+The command produces:
+
+1. One PNG per `(seed, axis combination)` pair, stored in the DB and output directory
+2. One labeled XY grid PNG per experiment (axes as rows/columns), also stored in the DB
 
 ### CLI Commands Documentation
 
@@ -354,10 +411,12 @@ TransNext uses `transcrypto.utils.config` for configuration management. The data
 
 The database is optionally encrypted with AES and stores:
 
-- All known image metadata (hashes, paths, dimensions, generation parameters)
-- Available AI model inventory (hashes, names, paths, types)
+- All known image metadata (hashes, paths, dimensions, generation parameters, embeddings referenced)
+- Available AI model inventory (hashes, names, paths, types, sidecar metadata)
 - Known image source directories for sync
 - Current output directory setting
+- Experiment configurations and results (base config, axis definitions, seed lists, per-seed result hashes)
+- Detected embedding names referenced in image metadata
 
 #### Environment variables
 
@@ -397,23 +456,29 @@ TransNext uses Python's standard `logging` module with Rich formatting:
 
 ```txt
 CLI (Typer)  ->  gen.py (Main callback + config)
-                   |-- cli/make.py       ->  core/db.py (AIDatabase.Txt2Img)    ->  core/sdnapi.py (API.Txt2Img)
-                   |-- cli/reproduce.py  ->  core/db.py (AIDatabase.Reproduce)  ->  core/sdnapi.py (API.Txt2Img)
-                   +-- cli/sync.py       ->  core/db.py (AIDatabase.Sync)       ->  filesystem scan + metadata parse
+                   |-- cli/make.py           ->  core/db.py (AIDatabase.Txt2Img)                        ->  core/sdnapi.py (API.Txt2Img)
+                   |-- cli/reproduce.py      ->  core/db.py (AIDatabase.Reproduce)                     ->  core/sdnapi.py (API.Txt2Img)
+                   +-- cli/sync.py           ->  core/db.py (AIDatabase.Sync)                          ->  filesystem scan + metadata parse
+             ->  experiment.py (Main callback + config)
+                   +-- cli/cliexperiment.py  ->  core/newton.py (Experiments.Make, Experiment.Run, Experiment.Grid)
+                                             ->  core/db.py (AIDatabase.Txt2Img, AIDatabase.Save)     ->  core/sdnapi.py (API.Txt2Img)
 ```
 
-The CLI layer (`gen.py` + `cli/`) handles argument parsing and wiring. The core layer (`core/`) contains all business logic: the database (`db.py`), API client (`sdnapi.py`), and shared constants/types (`base.py`).
+The CLI layer (`gen.py` + `experiment.py` + `cli/`) handles argument parsing and wiring. The core layer (`core/`) contains all business logic: the database (`db.py`), API client (`sdnapi.py`), experiment engine (`newton.py`), and shared constants/types (`base.py`).
 
 ### Modules and packages
 
 | Component | Responsibility |
 | --- | --- |
 | `gen.py` | Typer app definition, global callback, `GenConfig` dataclass, `markdown` command |
-| `cli/make.py` | `make` command — image generation via SDNext API |
-| `cli/reproduce.py` | `reproduce` command — re-generate an existing DB image by hash or path |
-| `cli/sync.py` | `sync` command — directory scanning and DB import |
+| `experiment.py` | Typer app definition for the `experiment` app, `ExperimentConfig` dataclass, `markdown` command |
+| `cli/make.py` | `gen make` command — image generation via SDNext API |
+| `cli/reproduce.py` | `gen reproduce` command — re-generate an existing DB image by hash or path |
+| `cli/sync.py` | `gen sync` command — directory scanning and DB import |
+| `cli/cliexperiment.py` | `experiment new` command — run a systematic XY grid generation experiment |
 | `core/base.py` | Constants, enums (`Sampler`, `QueryParser`), CLI option definitions, `TransNextConfig` base class |
 | `core/db.py` | `AIDatabase` class, TypedDict schemas (`DBImageType`, `AIMetaType`, `AIModelType`), image import/metadata parsing |
+| `core/newton.py` | `Experiments` and `Experiment` classes, axis management, Cartesian product execution, labeled XY grid image building |
 | `core/sdnapi.py` | SDNext API HTTP client (`API` class), image generation, model management |
 
 ### Data flow
@@ -451,6 +516,19 @@ The CLI layer (`gen.py` + `cli/`) handles argument parsing and wiring. The core 
 6. Verify the model referenced in `AIMetaType` is still in the DB
 7. Call SDNext `/sdapi/v1/txt2img` with the exact same `AIMetaType` parameters
 8. Store the new `DBImageType` entry in DB, save DB
+
+#### Image experiment (`experiment new`)
+
+1. Parse CLI args, create `ExperimentConfig`
+2. Open `sdnapi.API` connection to SDNext server
+3. Open `AIDatabase` (load or create encrypted DB file)
+4. Parse `--seeds` (pipe-separated) and `--axis` (repeatable) options
+5. Call `Experiments.Make()` to create (or load existing) `Experiment` object and register it in the DB
+6. Call `Experiment.Run()` — iterates over all (seed, key) combinations in sorted order:
+   - For each combination: apply axis values to base config, call `AIDatabase.Txt2Img()`
+   - Store result hash in the experiment results map; save DB every 5 generated images
+7. After all images, call `Experiment.Grid()` to assemble labeled XY grid PNG images and yield them
+8. Grids are stored in the DB with experiment metadata; save DB
 
 ### Error handling
 
@@ -495,28 +573,33 @@ The CLI layer (`gen.py` + `cli/`) handles argument parsing and wiring. The core 
 │   ├── extensions.json
 │   └── settings.json             ⟸ VSCode configs
 ├── scripts/
-│   └── template.py               ⟸ Template for executable standalone scripts
+│   ├── template.py               ⟸ Template for executable standalone scripts
+│   ├── clean_db_leave_models.py  ⟸ Safety-guarded script to wipe images/experiments from DB while keeping models
+│   └── show_errors.py            ⟸ Read-only script to explore and triage DB parse errors
 ├── src/
 │   └── transnext/
 │       ├── __init__.py           ⟸ Version (`__version__`)
-│       ├── __main__.py
-│       ├── gen.py                ⟸ Main CLI app entry point (GenConfig, Main callback)
+│       ├── gen.py                ⟸ Main `gen` CLI app entry point (GenConfig, Main callback)
+│       ├── experiment.py         ⟸ `experiment` CLI app entry point (ExperimentConfig, Main callback)
 │       ├── py.typed
 │       ├── cli/
 │       │   ├── __init__.py
 │       │   ├── make.py           ⟸ `gen make` command (image generation)
 │       │   ├── reproduce.py      ⟸ `gen reproduce` command (re-generate image by hash/path)
-│       │   └── sync.py           ⟸ `gen sync` command (directory sync)
+│       │   ├── sync.py           ⟸ `gen sync` command (directory sync)
+│       │   └── cliexperiment.py  ⟸ `experiment new` command (XY grid experiment)
 │       ├── core/
 │       │   ├── __init__.py
 │       │   ├── base.py           ⟸ Constants, enums, CLI option definitions
 │       │   ├── db.py             ⟸ AIDatabase, TypedDict schemas, import/sync logic
+│       │   ├── newton.py         ⟸ Experiment engine: axes, Cartesian product, XY grid images
 │       │   └── sdnapi.py         ⟸ SDNext API client
 │       └── utils/
 │           ├── __init__.py
 │           └── template.py       ⟸ Template for new modules
 ├── tests/                        ⟸ Unit tests (mirrors src/ structure)
 │   ├── gen_test.py
+│   ├── semi_integration_test.py
 │   ├── cli/
 │   ├── core/
 │   ├── data/
