@@ -31,7 +31,7 @@ app = typer.Typer(
   help=(  # keep in sync with Main().help
     'TransNext SDXL experiment manager.'
   ),
-  epilog='',  # TODO
+  epilog='',  # TODO: add examples
 )
 
 
