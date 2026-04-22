@@ -49,6 +49,7 @@ class _DBType(TypedDict):
   images: dict[str, DBImageType]  # {image_hash: image_metadata}
   models: dict[str, AIModelType]  # {model_hash: model}
   lora: dict[str, AIModelType]  # {model_hash: lora/lycoris}
+  embeddings: dict[str, str]  # {embedding_name: path_to_embedding}
   known_image_sources: list[str]  # places to track images from
   image_output_dir: str | None  # current directory to save generated images to
   experiments: dict[str, tbase.JSONDict]  # {experiment_hash: newton.ExperimentType}
@@ -71,6 +72,7 @@ def _DBTypeFactory(overrides: dict[str, object] | None = None) -> _DBType:
     'images': {},
     'models': {},
     'lora': {},
+    'embeddings': {},
     'known_image_sources': [],
     'image_output_dir': None,
     'experiments': {},
@@ -232,6 +234,8 @@ class AIMetaType(TypedDict):
   ngms: int | None  # A1111 only/obsolete: “Negative Guidance minimum sigma” (times 100 int storage)
   cfg_skip: int | None  # A1111 only/obsolete: “Skip Early CFG” (times 100 int storage)
   lora: dict[str, str] | None  # {hash: lora_weights_string}; empty dict if no lora/lycoris used
+  p_embeddings: list[str] | None  # sorted list of positive embedding names used; None if none used
+  n_embeddings: list[str] | None  # sorted list of negative embedding names used; None if none used
   img2img: AIImg2ImgType | None  # img2img-specific metadata; None if txt2img
   freeu: AIMetaFreeUType | None  # FreeU backbone/skip feature scaling (times 100 int storage)
 
@@ -301,7 +305,9 @@ def AIMetaTypeFactory(overrides: dict[str, object] | None = None) -> AIMetaType:
     sch_type=None,
     ngms=None,
     cfg_skip=None,
-    lora={},
+    lora=None,
+    p_embeddings=None,
+    n_embeddings=None,
     img2img=None,
     freeu=AIMetaFreeUType(
       b1=base.SD_DEFAULT_FREEU_B1,
@@ -751,6 +757,15 @@ class AIDatabase:
     # done, log
     logging.info(f'Refreshed DB lora; total lora in DB: {len(self._db["lora"])}')
 
+  def RefreshDBEmbeddings(self, api: APIProtocol) -> None:
+    """Refresh DB embeddings by fetching from the API and updating DB. Does NOT delete embeddings.
+
+    Args:
+      api: APIProtocol instance to use for fetching available models
+
+    """
+    self._db['embeddings'].update(api.GetEmbeddings())
+
   def GetModelHash(self, model_name: str, *, api: APIProtocol | None = None) -> str:
     """Get the model hash for a given model key. If API is given will also try to fetch.
 
@@ -829,6 +844,16 @@ class AIDatabase:
     """
     # make a copy to modify without affecting caller
     meta = copy.deepcopy(meta)
+    # inject embedding info into meta
+    meta['p_embeddings'] = (
+      sorted({eb for eb in self._db['embeddings'] if eb.lower() in meta['positive'].lower()})
+      or None
+    )
+    meta['n_embeddings'] = (
+      sorted({eb for eb in self._db['embeddings'] if eb.lower() in meta['negative'].lower()})
+      if meta['negative']
+      else None
+    )
     # inject lora info into meta
     lora_weights: dict[str, tuple[str, str]] = base.LoraExtract(
       meta['positive'] + '\n' + (meta['negative'] or '')
@@ -839,7 +864,7 @@ class AIDatabase:
       meta['lora'][lora_hash] = weights  # type: ignore[index]
     return meta
 
-  def Txt2Img(
+  def Txt2Img(  # noqa: C901
     self,
     meta: AIMetaType,
     api: APIProtocol,
@@ -1071,7 +1096,7 @@ class AIDatabase:
         # new image (or redo) — parse metadata and add to DB
         try:
           new_entry: DBImageType = _ImportImageFile(
-            img_path, img_bytes, img_hash, all_models, all_lora
+            img_path, img_bytes, img_hash, all_models, all_lora, set(self._db['embeddings'])
           )
         except (ValueError, tbase.Error) as err:
           img_error += 1
@@ -1197,6 +1222,7 @@ def _ImportImageFile(  # noqa: C901, PLR0912, PLR0914, PLR0915
   img_hash: str,
   models: dict[str, str],
   loras: dict[str, str],
+  embeddings: set[str],
 ) -> DBImageType:
   """Parse an image file from disk and create a DBImageType entry.
 
@@ -1209,6 +1235,7 @@ def _ImportImageFile(  # noqa: C901, PLR0912, PLR0914, PLR0915
     img_hash: Precomputed SHA-256 hex digest of the file bytes.
     models: The DB models like {hash: model_name/alias}.
     loras: The DB loras like {hash: lora_name/alias}.
+    embeddings: The set of known embedding names in the DB.
 
   Returns:
     A populated DBImageType for the image.
@@ -1297,6 +1324,13 @@ def _ImportImageFile(  # noqa: C901, PLR0912, PLR0914, PLR0915
   elif 'lora' in (info_lower := info_text.lower()) or 'lyco' in info_lower:
     # there is some lora info we couldn't parse (possibly: could be word like "floral")
     parse_errors['lora/lyco possible unparsed info'] = None
+  # embeddings
+  positive: str = meta_raw.get('positive', '')
+  negative: str | None = meta_raw.get('negative') or None
+  p_embeddings: set[str] = {eb for eb in embeddings if eb.lower() in positive.lower()}
+  n_embeddings: set[str] = (
+    {eb for eb in embeddings if eb.lower() in negative.lower()} if negative else set()
+  )
   # get version
   img_origin: ImageOrigin | None = None
   app_version: str | None = None
@@ -1392,7 +1426,7 @@ def _ImportImageFile(  # noqa: C901, PLR0912, PLR0914, PLR0915
   ai_meta: AIMetaType = AIMetaType(
     # MANDATORY FIELDS (must be present and valid, otherwise we consider this image as malformed)
     model_hash=model_hash,
-    positive=meta_raw.get('positive', ''),
+    positive=positive,
     seed=_IntKey('seed', -1),
     v_seed=(
       AIMetaVariationSeedType(seed=v_seed, percent=v_strength)
@@ -1405,7 +1439,7 @@ def _ImportImageFile(  # noqa: C901, PLR0912, PLR0914, PLR0915
     cfg_scale=_FloatKey(meta_raw, 'cfg scale', 0),
     sampler=sampler.value,
     # OPTIONAL FIELDS (if missing will have defaults, but if present must be valid)
-    negative=meta_raw.get('negative') or None,
+    negative=negative,
     cfg_end=_FloatKey(meta_raw, 'cfg end', 0, empty=base.SD_EMPTY_CFG_END),
     cfg_rescale=_FloatKey(
       meta_raw,
@@ -1426,7 +1460,9 @@ def _ImportImageFile(  # noqa: C901, PLR0912, PLR0914, PLR0915
     ),
     ngms=_FloatKey(meta_raw, 'ngms', 0, empty='0', conversion=100) or None,
     cfg_skip=_FloatKey(meta_raw, 'skip early cfg', 0, empty='0', conversion=100) or None,
-    lora=lora_info,
+    lora=lora_info or None,
+    p_embeddings=sorted(p_embeddings) or None,
+    n_embeddings=sorted(n_embeddings) or None,
     img2img=img2img,
     freeu=freeu,
   )
@@ -1526,6 +1562,18 @@ class APIProtocol(Protocol):
 
     Returns:
       A list of AIModelType objects representing the available lora/lycoris. BEWARE: hash will be ''
+
+    Raises:
+      Error: If there is an error with the API call or if the response is invalid.
+
+    """
+
+  @abstract.abstractmethod
+  def GetEmbeddings(self) -> dict[str, str]:
+    """Get list of available (loaded) embeddings from SDNext API.
+
+    Returns:
+      {name: path}
 
     Raises:
       Error: If there is an error with the API call or if the response is invalid.

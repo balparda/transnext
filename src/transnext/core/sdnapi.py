@@ -46,6 +46,7 @@ class Endpoints(enum.Enum):
   SYSTEM_STATUS = 'system-info'
   MODELS = 'sd-models'
   LORA = 'loras'
+  EMBEDDINGS = 'embeddings'
   OPTIONS = 'options'
   COMMAND_FLAGS = 'cmd-flags'
   RELOAD_CHECKPOINT = 'reload-checkpoint'
@@ -58,11 +59,12 @@ class APICalls(enum.Enum):
   STATUS = 1
   MODELS = 2
   LORA = 3
-  READ_OPTIONS = 4
-  SET_OPTIONS = 5
-  COMMAND_FLAGS = 6
-  RELOAD_CHECKPOINT = 7
-  TXT2IMG = 8
+  EMBEDDINGS = 4
+  READ_OPTIONS = 5
+  SET_OPTIONS = 6
+  COMMAND_FLAGS = 7
+  RELOAD_CHECKPOINT = 8
+  TXT2IMG = 9
 
 
 _API_CALL_MATRIX: dict[
@@ -72,6 +74,7 @@ _API_CALL_MATRIX: dict[
   APICalls.STATUS: (APIVersions.V2, Endpoints.SYSTEM_STATUS, requests.get),
   APICalls.MODELS: (APIVersions.V2, Endpoints.MODELS, requests.get),
   APICalls.LORA: (APIVersions.V1, Endpoints.LORA, requests.get),
+  APICalls.EMBEDDINGS: (APIVersions.V2, Endpoints.EMBEDDINGS, requests.get),
   APICalls.READ_OPTIONS: (APIVersions.V2, Endpoints.OPTIONS, requests.get),
   APICalls.SET_OPTIONS: (APIVersions.V2, Endpoints.OPTIONS, requests.post),
   APICalls.COMMAND_FLAGS: (APIVersions.V1, Endpoints.COMMAND_FLAGS, requests.get),
@@ -581,6 +584,65 @@ class API(db.APIProtocol):
       parsed.append(new_lora)
     # done, return
     return parsed
+
+  def GetEmbeddings(self) -> dict[str, str]:
+    """Get list of available (loaded) embeddings from SDNext API.
+
+    Schema:
+
+    {
+      'loaded': [
+        {
+          'name': 'zPDXL3',
+          'filename': '/foo/bar/models/embeddings/zPDXL3.pt',
+          'step': null,
+          'shape': null,
+          'vectors': 0,
+          'sd_checkpoint': null,
+          'sd_checkpoint_name': null,
+        },
+        # ...
+      ],
+      'skipped': [
+        {
+          'name': 'zPDXLrl-neg',
+          'filename': '/foo/bar/models/embeddings/zPDXLrl-neg.pt',
+          'step': null,
+          'shape': null,
+          'vectors': 0,
+          'sd_checkpoint': null,
+          'sd_checkpoint_name': null,
+        },
+        # ...
+      ],
+    }
+
+    Returns:
+      {name: path}
+
+    Raises:
+      Error: If there is an error with the API call or if the response is invalid.
+
+    """
+    # call
+    embeddings: tbase.JSONValue = self.Call(APICalls.EMBEDDINGS)
+    if (
+      not isinstance(embeddings, dict)
+      or not embeddings
+      or 'loaded' not in embeddings
+      or not isinstance(embeddings['loaded'], list)
+    ):
+      raise Error(f'Invalid embeddings response from SDNext API: {embeddings}')
+    # parse and return loaded and valid embeddings
+    return {
+      n: str(p)
+      for n, p in (
+        (cast('str', e['name']), pathlib.Path(cast('str', e['filename'])).expanduser().resolve())
+        for e in embeddings['loaded']
+        if isinstance(e, dict) and 'name' in e and 'filename' in e
+      )
+      if p.exists() and p.is_file()
+    }
 
   def Txt2Img(  # noqa: C901, PLR0914, PLR0915
     self,
