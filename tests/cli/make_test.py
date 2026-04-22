@@ -151,7 +151,7 @@ def testMakeWithAllOptions(
     'cfg_rescale': 30,
     'cfg_scale': 75,
     'clip_skip': 20,
-    'freeu': (130, 140, 90, 20),
+    'freeu': {'b1': 130, 'b2': 140, 's1': 90, 's2': 20},
     'height': 768,
     'model_hash': 'model-hash',
     'negative': 'ugly',
@@ -164,10 +164,7 @@ def testMakeWithAllOptions(
     'sch_type': None,
     'seed': 123,
     'steps': 30,
-    'v_seed': (
-      456,
-      50,
-    ),
+    'v_seed': {'seed': 456, 'percent': 50},
     'width': 512,
   }
 

@@ -39,7 +39,7 @@ def testVersion() -> None:
   """--version prints version and exits."""
   result = CallCLI(['--version'])
   assert result.exit_code == 0
-  assert '1.0.0' in result.output
+  assert '1.1.0' in result.output
 
 
 def testNoArgsShowsHelp() -> None:

@@ -230,6 +230,7 @@ _MAKE_CLI_ARGS: list[str] = [
   '--port',
   '7861',
   '--no-db',
+  '--no-sidecar',
   'make',
   'dark knight in moody rain <lora:XL-CLR-colorful-fractal:1.33>',
   '-n',
@@ -350,7 +351,7 @@ def testMakeSemiIntegration(
     'dark knight in moody rain <lora:XL-CLR-colorful-fractal:1.33>',
     'batman, comic, text',
   )
-  assert filename.startswith(prompt_hash)
-  assert '-e6bb9ea85b-' in filename  # model_hash[:8]
+  assert f'-{prompt_hash}-' in filename
+  assert '-e6bb9ea85b-' in filename  # model_hash[:10]
   assert '-80-40-512-256-666-' in filename  # cfg*10, steps, w, h, seed
   assert filename.endswith(f'{expected_img_hash[:12]}.png')

@@ -309,6 +309,7 @@
     "unet",
     "unpickler",
     "uvicorn",
+    "vaefix",
     "venv",
     "virtualenv",
     "virtualenvs",

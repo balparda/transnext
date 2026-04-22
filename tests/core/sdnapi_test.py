@@ -71,6 +71,7 @@ def _MakeModel(
     model_type=db.ModelType.safetensors.value,
     function=db.ModelFunction.Model.value,
     metadata={},
+    sidecar=None,
     description=None,
   )
 
@@ -333,6 +334,7 @@ def testGetModelsValid() -> None:
       'filename': '/tmp/model.safetensors',  # noqa: S108
       'type': 'safetensors',
     },
+    'sidecar': None,
     'description': None,
   }
 
@@ -440,6 +442,7 @@ def testGetLoraValid() -> None:
     'model_type': 'safetensors',
     'function': db.ModelFunction.Lora.value,
     'metadata': {},
+    'sidecar': None,
     'description': None,
   }
 
@@ -553,18 +556,20 @@ def testTxt2ImgSuccess() -> None:
           'cfg_scale': 60,
           'cfg_skip': None,
           'clip_skip': 10,
-          'freeu': (
-            105,
-            110,
-            75,
-            65,
-          ),
+          'freeu': {
+            'b1': 105,
+            'b2': 110,
+            's1': 75,
+            's2': 65,
+          },
           'height': _TEST_PNG_HEIGHT,
           'img2img': None,
-          'lora': {},
+          'lora': None,
           'model_hash': 'abc123',
+          'n_embeddings': None,
           'negative': None,
           'ngms': None,
+          'p_embeddings': None,
           'parser': 'a1111',
           'positive': '',
           'sampler': 'DPM++ SDE',
@@ -590,7 +595,7 @@ def testTxt2ImgSuccess() -> None:
           'sd_model_checkpoint': 'test-model',
           'width': _TEST_PNG_WIDTH,
         },
-        'version': 'abc123/1.0.0',
+        'version': 'abc123/1.1.0',
       },
     },
     'raw_hash': _TEST_PNG_RAW_HASH,

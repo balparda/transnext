@@ -82,6 +82,7 @@ def testTransNextConfigCreation() -> None:
     host='http://localhost',
     port=7860,
     db=True,
+    sidecar=None,
     output=None,
   )
   assert config.host == 'http://localhost'
@@ -100,6 +101,7 @@ def testTransNextConfigFrozen() -> None:
     host='http://localhost',
     port=7860,
     db=False,
+    sidecar=None,
     output=None,
   )
   with pytest.raises(AttributeError):
