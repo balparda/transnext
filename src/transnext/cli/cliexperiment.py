@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import copy
 import logging
 import pathlib
 
@@ -69,9 +70,6 @@ def New(  # documentation is help/epilog/args # noqa: D103
   redo: bool = base.SD_REDO_OPTION,  # type: ignore[assignment]
   seeds_raw: str = base.SD_EXPERIMENT_SEEDS_OPTION,  # type: ignore[assignment]
   raw_axes: list[str] = base.SD_EXPERIMENT_AXIS_OPTION,  # type: ignore[assignment]
-  respect_vae: bool = base.SD_EXPERIMENT_RESPECT_VAE_OPTION,  # type: ignore[assignment]
-  respect_pony: bool = base.SD_EXPERIMENT_RESPECT_PONY_OPTION,  # type: ignore[assignment]
-  respect_clip2: bool = base.SD_EXPERIMENT_RESPECT_CLIP2_OPTION,  # type: ignore[assignment]
 ) -> None:
   # check sanity
   config: experiment.ExperimentConfig = ctx.obj
@@ -140,9 +138,7 @@ def New(  # documentation is help/epilog/args # noqa: D103
       axes,
       seed_list,
       newton.ExperimentOptionsType(
-        respect_vae=respect_vae,
-        respect_pony=respect_pony,
-        respect_clip2=respect_clip2,
+        sidecar=copy.deepcopy(config.sidecar),
       ),
     )
     for _ in exp.Run(api, redo=redo):

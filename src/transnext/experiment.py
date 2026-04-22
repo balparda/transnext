@@ -72,6 +72,9 @@ def Main(  # documentation is help/epilog/args # noqa: D103
   port: int = base.SD_PORT_OPTION,  # type: ignore[assignment]
   db: bool = base.SD_DB_USE_OPTION,  # type: ignore[assignment]
   sidecar: bool = base.SD_DB_SIDECAR_SAVE,  # type: ignore[assignment]
+  respect_vae: bool = base.SD_RESPECT_VAE_OPTION,  # type: ignore[assignment]
+  respect_pony: bool = base.SD_RESPECT_PONY_OPTION,  # type: ignore[assignment]
+  respect_clip2: bool = base.SD_RESPECT_CLIP2_OPTION,  # type: ignore[assignment]
   output: pathlib.Path | None = base.SD_IMAGES_OUTPUT_OPTION,  # type: ignore[assignment]
 ) -> None:
   if version:
@@ -93,7 +96,13 @@ def Main(  # documentation is help/epilog/args # noqa: D103
     host=host,
     port=port,
     db=db,
-    sidecar=sidecar,
+    sidecar=(
+      base.SidecarOptionsType(
+        respect_vae=respect_vae, respect_pony=respect_pony, respect_clip2=respect_clip2
+      )
+      if sidecar
+      else None
+    ),
     output=output,
   )
   # even though this is a convenient place to print(), beware that this runs even when

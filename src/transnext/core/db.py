@@ -348,7 +348,7 @@ class AIDatabase:
     config: app_config.AppConfig,
     *,
     read_only: bool = False,
-    sidecar: bool = True,
+    sidecar: base.SidecarOptionsType | None = None,
     aes_key: aes.AESKey | None = None,
     safe_save: bool = True,
     compress_save: bool = False,
@@ -359,7 +359,7 @@ class AIDatabase:
     Args:
       config: The application configuration object.
       read_only: (default False) Whether to open the database in read-only mode.
-      sidecar: (default True) Whether to use a sidecar JSON file for models
+      sidecar: (default None) Whether to use a sidecar JSON file for models + which flags to respect
       aes_key: (default None) Optional AES key for encrypting/decrypting the database file
       safe_save: (default True) Whether to use a safe save method that reads the existing DB file
           before writing, to prevent data loss from clobbering; if False, it will overwrite
@@ -371,11 +371,11 @@ class AIDatabase:
     """
     self._config: app_config.AppConfig = config
     self._read_only: bool = read_only
+    self._sidecar: base.SidecarOptionsType | None = sidecar
     self._key: aes.AESKey | None = aes_key
     self._safe_save: bool = safe_save
     self._compress_save: bool = compress_save
     self._db: _DBType
-    self._sidecar: bool = sidecar
     self._open = timer.Timer('AIDatabase', emit_log=False)
     with _DB_DISK_LOCK:  # ensure thread-safe load operations
       if self._config.path.exists():
@@ -846,6 +846,7 @@ class AIDatabase:
     *,
     redo: bool = False,
     tm: int | None = None,
+    sidecar_override: base.SidecarOptionsType | None = None,
   ) -> tuple[DBImageType, bytes]:
     """Generate image from text prompt, store in DB.
 
@@ -858,6 +859,7 @@ class AIDatabase:
       redo: (default False) If True, forces re-generation of the image even if it exists in the DB
       tm: (default: None) Optional timestamp to use for the generated image metadata;
           if None, uses time we  get image back from API
+      sidecar_override: (default: None) Optional sidecar options to override the default ones
 
     Returns:
       A tuple containing the DBImageType object and the raw image data.
@@ -868,6 +870,17 @@ class AIDatabase:
 
     """
     meta = self.QueryNormalize(meta)  # this will, for example, add the lora info to the meta
+    # respect pony, clip2, and VAE options here
+    model: AIModelType = self.GetModel(meta['model_hash'] or '')
+    sidecar_override = sidecar_override or self._sidecar
+    if model['sidecar'] and sidecar_override:
+      if sidecar_override['respect_pony'] and model['sidecar']['is_pony']:
+        logging.warning(f'Model {model["name"]!r} is PONY, respect option, add POSITIVE prefix')
+        meta['positive'] = base.PONY_PREFIX_POSITIVE + meta['positive']
+      if sidecar_override['respect_clip2'] and model['sidecar']['is_clip2']:
+        logging.warning(f'Model {model["name"]!r} is CLIP2, respect option, clip_skip==20')
+        meta['clip_skip'] = 20
+    # TODO: respect vae
     # we have the model?
     if meta['model_hash'] not in self._db['models']:
       raise Error(f'Model with hash {meta["model_hash"]} not found in DB models')

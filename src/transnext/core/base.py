@@ -13,6 +13,7 @@ import os
 import pathlib
 import re
 from collections import abc
+from typing import TypedDict
 
 import typer
 from PIL import Image
@@ -231,6 +232,10 @@ SD_EMPTY_V_STRENGTH: str = '0'  # for empty prompts, default to 0.0 variation st
 
 SeedGen: abc.Callable[[], int] = lambda: saferandom.RandInt(2**16 - 1, SD_MAX_SEED)
 
+PONY_PREFIX_POSITIVE: str = (
+  'score_9, score_8_up, score_7_up, score_6_up, score_5_up, score_4_up, source_photo, '
+)
+
 # basic options
 
 SD_HOST_OPTION: typer.models.OptionInfo = typer.Option(
@@ -271,6 +276,30 @@ SD_DB_SIDECAR_SAVE: typer.models.OptionInfo = typer.Option(
   help=(
     'If True, SDNext API will save/load a sidecar JSON file with the model files (same directory); '
     'default: True'
+  ),
+)
+SD_RESPECT_VAE_OPTION: typer.models.OptionInfo = typer.Option(
+  True,
+  '--respect-vae/--no-respect-vae',
+  help=(
+    'If True, accept override of VAE option by model; '
+    'only respected if `--sidecar` is enabled; default: True'
+  ),
+)
+SD_RESPECT_PONY_OPTION: typer.models.OptionInfo = typer.Option(
+  True,
+  '--respect-pony/--no-respect-pony',
+  help=(
+    'If True, accept override of Pony option by model; '
+    'only respected if `--sidecar` is enabled; default: True'
+  ),
+)
+SD_RESPECT_CLIP2_OPTION: typer.models.OptionInfo = typer.Option(
+  True,
+  '--respect-clip2/--no-respect-clip2',
+  help=(
+    'If True, accept override of CLIP2 option by model; '
+    'only respected if `--sidecar` is enabled; default: True'
   ),
 )
 
@@ -539,21 +568,13 @@ SD_EXPERIMENT_AXIS_OPTION: typer.models.OptionInfo = typer.Option(
   ),
 )
 
-SD_EXPERIMENT_RESPECT_VAE_OPTION: typer.models.OptionInfo = typer.Option(
-  True,
-  '--respect-vae/--no-respect-vae',
-  help='If True, accept override of VAE option by model; default: True',
-)
-SD_EXPERIMENT_RESPECT_PONY_OPTION: typer.models.OptionInfo = typer.Option(
-  True,
-  '--respect-pony/--no-respect-pony',
-  help='If True, accept override of Pony option by model; default: True',
-)
-SD_EXPERIMENT_RESPECT_CLIP2_OPTION: typer.models.OptionInfo = typer.Option(
-  True,
-  '--respect-clip2/--no-respect-clip2',
-  help='If True, accept override of CLIP2 option by model; default: True',
-)
+
+class SidecarOptionsType(TypedDict):
+  """Experiment options type."""
+
+  respect_vae: bool  # accept override of VAE option?
+  respect_pony: bool  # accept override of Pony option?
+  respect_clip2: bool  # accept override of CLIP2 option?
 
 
 @dataclasses.dataclass(kw_only=True, slots=True, frozen=True)
@@ -563,7 +584,7 @@ class TransNextConfig(clibase.CLIConfig):
   host: str
   port: int
   db: bool
-  sidecar: bool
+  sidecar: SidecarOptionsType | None
   output: pathlib.Path | None
 
 

@@ -72,9 +72,7 @@ class ExperimentType(TypedDict):
 class ExperimentOptionsType(TypedDict):
   """Experiment options type."""
 
-  respect_vae: bool  # accept override of VAE option?
-  respect_pony: bool  # accept override of Pony option?
-  respect_clip2: bool  # accept override of CLIP2 option?
+  sidecar: base.SidecarOptionsType | None  # sidecar options
 
 
 class AxisType(TypedDict):
@@ -159,7 +157,7 @@ CFGValidate: AxisFnType = cast(
 
 
 _AXIS_MAP: AxisMapType = {
-  # as: field_key: (name, type, validate_fn, apply_fn)
+  # as: field_key: (type, validate_fn, apply_fn)
   # where validate_fn: (value: AxisKindType) -> value: AxisKindType or raises Error if invalid
   # and apply_fn: (value: AxisKindType) -> value: AxisKindType to apply a value
   #
@@ -298,9 +296,6 @@ class Experiment:
         cast('AxisFnType', PromptReplaceTunnel(self._config['negative'] or '')),
       )
     # validate axes and values
-    # TODO: respect vae
-    # TODO: respect pony
-    # TODO: respect clip2
     validate_fn: AxisFnType
     model_index: int | None = None
     for n, axis in enumerate(self._axes):
@@ -427,7 +422,9 @@ class Experiment:
           # update seed; generate the image and store in DB
           meta['seed'] = seed
           logging.info(f'Generating {seed}/{key}...')
-          image_obj, image_data = self._ai_db.Txt2Img(meta, api, redo=redo, tm=tm_created)
+          image_obj, image_data = self._ai_db.Txt2Img(
+            meta, api, redo=redo, tm=tm_created, sidecar_override=self._options['sidecar']
+          )
           self._results[str(seed)][kh] = image_obj['hash']  # store the result hash in results
           n_done += 1
           logging.info(f'Progress: {n_done + n_skip}/{total} combinations completed, skip {n_skip}')
