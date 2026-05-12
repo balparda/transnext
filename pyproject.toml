@@ -103,7 +103,7 @@ python = "^3.13"  # if version changes, remember to change README.md
 [tool.poetry.group.dev.dependencies]
 
 # basic, all projects should have
-ruff = "^0.15.11"
+ruff = "^0.15.12"
 mypy = "^2.1"
 pytest = "^9.0"
 pytest-cov = "^7.1"
