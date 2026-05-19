@@ -50,7 +50,7 @@ license-files = [ "LICENSE" ]
 dependencies = [
 
   "transai>=1.3.0",
-  "requests>=2.34",  # sync with types-requests import
+  "requests>=2.34.2",  # sync with types-requests import
 
 ]
 
